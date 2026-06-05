@@ -5,9 +5,6 @@ import torch
 from models.ts2vec.ts2vec import TS2Vec
 
 
-_CONTEXT_FID_DEVICE_DEBUG_PRINTED = False
-
-
 def calculate_fid(act1, act2):
     # calculate mean and covariance statistics
     mu1, sigma1 = act1.mean(axis=0), np.cov(act1, rowvar=False)
@@ -56,7 +53,6 @@ def _get_context_fid_config(args):
 
 
 def Context_FID(ori_data, generated_data, args=None):
-    global _CONTEXT_FID_DEVICE_DEBUG_PRINTED
     cfg = _get_context_fid_config(args)
     n_iters = cfg.pop("n_iters")
     if n_iters is not None:
@@ -65,17 +61,6 @@ def Context_FID(ori_data, generated_data, args=None):
             n_iters = None
 
     model = TS2Vec(input_dims=ori_data.shape[-1], **cfg)
-    if not _CONTEXT_FID_DEVICE_DEBUG_PRINTED:
-        try:
-            param_device = next(model._net.parameters()).device
-        except StopIteration:
-            param_device = "no-parameters"
-        print(
-            "[DEBUG] Context-FID TS2Vec "
-            f"cfg_device={cfg.get('device')}, model_device={model.device}, "
-            f"param_device={param_device}, cuda_available={torch.cuda.is_available()}"
-        )
-        _CONTEXT_FID_DEVICE_DEBUG_PRINTED = True
     model.fit(ori_data, n_iters=n_iters, verbose=False)
     ori_represenation = model.encode(ori_data, encoding_window='full_series')
     gen_represenation = model.encode(generated_data, encoding_window='full_series')

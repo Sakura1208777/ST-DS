@@ -167,6 +167,21 @@ def _add_st_ds_args(parser):
     parser.add_argument('--pred_structure_confidence_power', type=float, default=None)
     parser.add_argument('--pred_structure_huber_beta', type=float, default=None)
     parser.add_argument('--lambda_pred_structure', type=float, default=None)
+    parser.add_argument('--use_mp_pdr', type=_str2bool, default=None)
+    parser.add_argument('--mp_pdr_num_windows', type=int, default=None)
+    parser.add_argument('--mp_pdr_window_ratio', type=float, default=None)
+    parser.add_argument('--mp_pdr_horizons', type=int, nargs='+', default=None)
+    parser.add_argument('--lambda_mp_pdr_dyn', type=float, default=None)
+    parser.add_argument('--lambda_mp_pdr_dir', type=float, default=None)
+    parser.add_argument('--lambda_mp_pdr_guard', type=float, default=None)
+    parser.add_argument('--mp_pdr_guard_ratio', type=float, default=None)
+    parser.add_argument('--mp_pdr_seq_len_threshold', type=float, default=None)
+    parser.add_argument('--mp_pdr_seq_len_tau', type=float, default=None)
+    parser.add_argument('--mp_pdr_warmup_ratio', type=float, default=None)
+    parser.add_argument('--mp_pdr_warmup_window', type=float, default=None)
+    parser.add_argument('--mp_pdr_random_window', type=_str2bool, default=None)
+    parser.add_argument('--mp_pdr_min_effective_weight', type=float, default=None)
+    parser.add_argument('--mp_pdr_conflict_gate', type=_str2bool, default=None)
     parser.add_argument('--lambda_st_residual', type=float, default=None)
     parser.add_argument('--lambda_st_delta_reg', type=float, default=None)
     parser.add_argument('--lambda_st_raw_delta_reg', type=float, default=None)
@@ -719,6 +734,125 @@ _TRAIN_BUDGET_PRESETS["pro4"] = {
 }
 
 
+# === [PRO5] pro5 ===
+# Method: pro4 + metric-preserving multi-window predictive dynamics regularization.
+# Isolation: standalone full preset; does not inherit from pro4 at runtime.
+_TRAIN_BUDGET_PRESETS["pro5"] = {
+    "epochs": 500,
+    "logging_iter": 50,
+    "st_freeze": False,
+    "st_internal_health": False,
+    "st_internal_freeze": False,
+    "use_late_decay": False,
+    "use_structured_st_target": False,
+    "use_residual_reliability": True,
+    "residual_reliability_min": 0.20,
+    "residual_reliability_power": 1.0,
+    "residual_reliability_kernels": [3, 5, 7, 11],
+    "residual_reliability_freq_topk": 3,
+    "residual_reliability_acf_max_lag": 12,
+    "reliability_delta_reg_boost": 2.0,
+    "reliability_effective_boost": 2.0,
+    "use_pred_structure_loss": True,
+    "pred_structure_max_lag": 6,
+    "pred_structure_max_channels": 64,
+    "pred_structure_include_cross": True,
+    "pred_structure_no_self": True,
+    "pred_structure_adaptive": True,
+    "pred_structure_warmup_ratio": 0.25,
+    "pred_structure_warmup_window": 0.05,
+    "pred_structure_strength_floor": 0.04,
+    "pred_structure_strength_scale": 0.20,
+    "pred_structure_confidence_min": 0.0,
+    "pred_structure_confidence_power": 1.0,
+    "pred_structure_huber_beta": 0.03,
+    "lambda_pred_structure": 0.003,
+    "use_mp_pdr": True,
+    "mp_pdr_num_windows": 4,
+    "mp_pdr_window_ratio": 0.15,
+    "mp_pdr_horizons": [1, 2, 4, 8],
+    "lambda_mp_pdr_dyn": 0.0005,
+    "lambda_mp_pdr_dir": 0.0002,
+    "lambda_mp_pdr_guard": 0.0005,
+    "mp_pdr_guard_ratio": 0.25,
+    "mp_pdr_seq_len_threshold": 96.0,
+    "mp_pdr_seq_len_tau": 32.0,
+    "mp_pdr_warmup_ratio": 0.40,
+    "mp_pdr_warmup_window": 0.10,
+    "mp_pdr_random_window": True,
+    "mp_pdr_min_effective_weight": 1e-6,
+    "mp_pdr_conflict_gate": False,
+    "st_alpha": 0.06,
+    "st_alpha_max": 0.10,
+    "st_warmup_epochs": 100,
+    "st_residual_calib": True,
+    "st_residual_warmup_epochs": 100,
+    "st_residual_target_scale": 0.40,
+    "st_feature_fusion": True,
+    "st_feature_channels": 64,
+    "st_feature_scale_max": 0.025,
+    "st_feature_init_scale": 0.004,
+    "st_feature_zero_init": True,
+    "st_feature_sigma_gate": True,
+    "st_feature_sigma_mid": -1.0,
+    "st_feature_sigma_scale": 0.75,
+    "st_feature_warmup_epochs": 250,
+    "st_feature_norm_max": 0.015,
+    "st_feature_input_clip": 3.0,
+    "lambda_st_residual": 0.05,
+    "lambda_st_delta_reg": 0.001,
+    "lambda_st_raw_delta_reg": 0.00015,
+    "lambda_st_effective": 0.045,
+    "lambda_st_effective_ratio": 0.018,
+    "lambda_st_relation_reg": 0.001,
+    "st_effective_align": False,
+    "st_effective_max_ratio": 0.30,
+    "st_lma_affine": True,
+    "st_period_branch": True,
+    "st_period_candidates": [2, 3, 4, 6, 8, 12],
+    "st_period_min": 2,
+    "st_period_max": 12,
+    "st_period_temperature": 0.40,
+    "st_period_max_scale": 0.08,
+    "st_period_input_condition": False,
+    "st_period_input_channels": 64,
+    "st_period_input_alpha": 0.020,
+    "st_period_input_alpha_max": 0.040,
+    "st_period_input_alpha_learnable": True,
+    "st_period_input_warmup_epochs": 120,
+    "st_period_input_max_scale": 0.14,
+    "st_period_input_init_scale": 0.02,
+    "st_detach_base_for_style": False,
+    "st_branch_style_calib": False,
+    "st_var_relation": True,
+    "st_var_relation_rank": 8,
+    "st_var_relation_beta": 0.08,
+    "st_var_relation_init_beta": 0.0,
+    "lambda_ts": 0.08,
+    "ds_warmup_epochs": 120,
+    "lambda_ds_trend": 0.04,
+    "lambda_ds_season": 0.04,
+    "lambda_ds_freq": 0.012,
+    "lambda_ds_corr": 0.004,
+    "lambda_ds_dist": 0.004,
+    "use_final_dist_train": True,
+    "lambda_final_mean": 0.004,
+    "lambda_final_std": 0.008,
+    "lambda_final_diff_std": 0.016,
+    "lambda_final_quantile": 0.010,
+    "lambda_final_highfreq": 0.005,
+    "use_period_train": False,
+    "period_lma_kernels": [1, 2, 4, 6, 12],
+    "period_max_lag": 12,
+    "period_warmup_epochs": 120,
+    "period_late_start_ratio": 0.72,
+    "period_late_min_scale": 0.50,
+    "lambda_period_autocorr": 0.008,
+    "lambda_period_amp": 0.005,
+    "lambda_period_phase": 0.0015,
+}
+
+
 
 def _resolve_train_budget(parsed_args):
     budget = getattr(parsed_args, "train_budget", None)
@@ -841,6 +975,21 @@ def _apply_st_ds_defaults(parsed_args):
         "pred_structure_confidence_power": 1.0,
         "pred_structure_huber_beta": 0.03,
         "lambda_pred_structure": 0.003,
+        "use_mp_pdr": False,
+        "mp_pdr_num_windows": 4,
+        "mp_pdr_window_ratio": 0.15,
+        "mp_pdr_horizons": [1, 2, 4, 8],
+        "lambda_mp_pdr_dyn": 0.0005,
+        "lambda_mp_pdr_dir": 0.0002,
+        "lambda_mp_pdr_guard": 0.0005,
+        "mp_pdr_guard_ratio": 0.25,
+        "mp_pdr_seq_len_threshold": 96.0,
+        "mp_pdr_seq_len_tau": 32.0,
+        "mp_pdr_warmup_ratio": 0.40,
+        "mp_pdr_warmup_window": 0.10,
+        "mp_pdr_random_window": True,
+        "mp_pdr_min_effective_weight": 1e-6,
+        "mp_pdr_conflict_gate": False,
         "st_alpha": 0.05,
         "st_alpha_max": 0.08,
         "st_alpha_learnable": True,
@@ -1003,7 +1152,7 @@ def parse_args_uncond():
                         help='training run id; leave empty to create a new id for training or use the latest id for evaluation')
     parser.add_argument('--train_budget', type=str,
                         choices=['a2', 'f3_500', 'f3_500p',
-                                 'pro3', 'pro4', 'auto'],
+                                 'pro3', 'pro4', 'pro5', 'auto'],
                         default=None,
                         help='generic ST-DS training budget preset')
     parser.add_argument('--log_dir', default='./logs', help='path to save logs')
@@ -1117,7 +1266,7 @@ def parse_args_cond():
                         help='training run id; leave empty to create a new id for training or use the latest id for evaluation')
     parser.add_argument('--train_budget', type=str,
                         choices=['a2', 'f3_500', 'f3_500p',
-                                 'pro3', 'pro4', 'auto'],
+                                 'pro3', 'pro4', 'pro5', 'auto'],
                         default=None,
                         help='generic ST-DS training budget preset')
     parser.add_argument('--log_dir', default='./logs', help='path to save logs')

@@ -1,3 +1,4 @@
+import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -352,6 +353,129 @@ class ImagenTime(nn.Module):
             "feature_dim": pred_features.new_tensor(float(pred_features.shape[1])),
         }
         return torch.nan_to_num(loss), info
+
+    def _mp_pdr_scale(self, seq_len):
+        if not bool(getattr(self.args, "use_mp_pdr", False)):
+            return 0.0, 0.0, 0.0
+        seq_len = max(int(seq_len), 0)
+        threshold = float(getattr(self.args, "mp_pdr_seq_len_threshold", 96.0) or 96.0)
+        tau = max(float(getattr(self.args, "mp_pdr_seq_len_tau", 32.0) or 32.0), 1e-6)
+        sigmoid_arg = max(-60.0, min(60.0, (float(seq_len) - threshold) / tau))
+        seq_factor = 1.0 / (1.0 + math.exp(-sigmoid_arg))
+
+        total_epochs = max(int(getattr(self.args, "epochs", 0) or 0), 1)
+        start_ratio = max(0.0, float(getattr(self.args, "mp_pdr_warmup_ratio", 0.40) or 0.0))
+        window_ratio = max(0.0, float(getattr(self.args, "mp_pdr_warmup_window", 0.10) or 0.0))
+        start = float(total_epochs) * start_ratio
+        window = max(1.0, float(total_epochs) * window_ratio)
+        current_epoch = float(getattr(self, "epoch", total_epochs))
+        if current_epoch <= start:
+            warmup_scale = 0.0
+        else:
+            warmup_scale = min(1.0, max(0.0, (current_epoch - start) / window))
+        return float(seq_factor * warmup_scale), float(seq_factor), float(warmup_scale)
+
+    def _mp_pdr_window_starts(self, seq_len, window_len, device):
+        seq_len = max(int(seq_len), 0)
+        window_len = max(int(window_len), 0)
+        if seq_len <= 0 or window_len <= 0:
+            return []
+        max_start = max(seq_len - window_len, 0)
+        starts = [0, seq_len // 4, seq_len // 2]
+        if bool(getattr(self.args, "mp_pdr_random_window", True)):
+            if self.training and max_start > 0:
+                random_start = int(torch.randint(0, max_start + 1, (1,), device=device).item())
+            else:
+                random_start = (3 * seq_len) // 4
+            starts.append(random_start)
+        starts.append(max_start)
+
+        clipped = []
+        seen = set()
+        for start in starts:
+            start = int(max(0, min(int(start), max_start)))
+            if start not in seen:
+                clipped.append(start)
+                seen.add(start)
+        max_windows = max(1, int(getattr(self.args, "mp_pdr_num_windows", 4) or 4))
+        return clipped[:max_windows]
+
+    def _mp_pdr_loss(self, pred_ts, target_ts, base_ts):
+        pred_ts = torch.nan_to_num(pred_ts)
+        target_ts = torch.nan_to_num(target_ts).to(device=pred_ts.device, dtype=pred_ts.dtype)
+        base_ts = torch.nan_to_num(base_ts).to(device=pred_ts.device, dtype=pred_ts.dtype)
+        batch, seq_len, _ = pred_ts.shape
+        horizons = getattr(self.args, "mp_pdr_horizons", None) or [1, 2, 4, 8]
+        horizons = sorted({int(h) for h in horizons if int(h) > 0})
+        if seq_len <= 1 or not horizons:
+            zero = pred_ts.new_zeros(())
+            return zero, {"dyn": zero, "dir": zero, "guard": zero, "windows": 0, "horizons": 0}
+
+        max_horizon = max(horizons)
+        window_ratio = max(0.0, float(getattr(self.args, "mp_pdr_window_ratio", 0.15) or 0.15))
+        window_len = max(max_horizon + 2, int(float(seq_len) * window_ratio))
+        window_len = min(max(window_len, 2), seq_len)
+        valid_horizons = [h for h in horizons if h < window_len]
+        if not valid_horizons:
+            zero = pred_ts.new_zeros(())
+            return zero, {"dyn": zero, "dir": zero, "guard": zero, "windows": 0, "horizons": 0}
+
+        starts = self._mp_pdr_window_starts(seq_len, window_len, pred_ts.device)
+        if not starts:
+            zero = pred_ts.new_zeros(())
+            return zero, {"dyn": zero, "dir": zero, "guard": zero, "windows": 0, "horizons": 0}
+
+        dyn_losses = []
+        dir_losses = []
+        guard_losses = []
+        guard_ratio = max(0.0, float(getattr(self.args, "mp_pdr_guard_ratio", 0.25) or 0.25))
+        eps = 1e-6
+        for start in starts:
+            end = min(int(start) + window_len, seq_len)
+            if end - int(start) < 2:
+                continue
+            pred_window = pred_ts[:, int(start):end, :]
+            real_window = target_ts[:, int(start):end, :]
+            base_window = base_ts[:, int(start):end, :]
+            for horizon in valid_horizons:
+                if horizon >= pred_window.shape[1]:
+                    continue
+                delta_pred = pred_window[:, horizon:, :] - pred_window[:, :-horizon, :]
+                delta_real = real_window[:, horizon:, :] - real_window[:, :-horizon, :]
+                delta_base = base_window[:, horizon:, :] - base_window[:, :-horizon, :]
+                dyn_losses.append(F.smooth_l1_loss(delta_pred, delta_real, reduction="mean"))
+
+                pred_flat = delta_pred.reshape(batch, -1)
+                real_flat = delta_real.reshape(batch, -1)
+                cosine = F.cosine_similarity(pred_flat, real_flat, dim=1, eps=eps)
+                dir_losses.append((1.0 - cosine).mean())
+
+                residual_dyn = delta_pred - delta_base
+                residual_norm = residual_dyn.reshape(batch, -1).norm(dim=1)
+                base_norm = delta_base.reshape(batch, -1).norm(dim=1).clamp_min(eps)
+                ratio = residual_norm / base_norm
+                guard_losses.append(F.relu(ratio - guard_ratio).mean())
+
+        if not dyn_losses:
+            zero = pred_ts.new_zeros(())
+            return zero, {"dyn": zero, "dir": zero, "guard": zero, "windows": 0, "horizons": 0}
+
+        dyn_loss = torch.stack(dyn_losses).mean()
+        dir_loss = torch.stack(dir_losses).mean()
+        guard_loss = torch.stack(guard_losses).mean()
+        lambda_dyn = float(getattr(self.args, "lambda_mp_pdr_dyn", 0.0005) or 0.0005)
+        lambda_dir = float(getattr(self.args, "lambda_mp_pdr_dir", 0.0002) or 0.0002)
+        lambda_guard = float(getattr(self.args, "lambda_mp_pdr_guard", 0.0005) or 0.0005)
+        # Reserved for future gradient-conflict gating; currently disabled by default.
+        total = lambda_dyn * dyn_loss + lambda_dir * dir_loss + lambda_guard * guard_loss
+        info = {
+            "dyn": torch.nan_to_num(dyn_loss).detach(),
+            "dir": torch.nan_to_num(dir_loss).detach(),
+            "guard": torch.nan_to_num(guard_loss).detach(),
+            "windows": len(starts),
+            "horizons": len(valid_horizons),
+        }
+        return torch.nan_to_num(total), info
 
     def _structured_target_blend(self):
         if not bool(getattr(self.args, "use_structured_st_target", False)):
@@ -745,6 +869,47 @@ class ImagenTime(nn.Module):
                     to_log['pred_structure/feature_dim'] = torch.nan_to_num(
                         pred_structure_info["feature_dim"]
                     ).detach().item()
+            if bool(getattr(self.args, "use_mp_pdr", False)):
+                mp_pdr_scale, mp_pdr_seq_factor, mp_pdr_warmup = self._mp_pdr_scale(base_ts_hat.shape[1])
+                mp_pdr_total = output.new_tensor(0.0)
+                mp_pdr_info = None
+                min_effective_weight = max(
+                    0.0,
+                    float(getattr(self.args, "mp_pdr_min_effective_weight", 1e-6) or 1e-6),
+                )
+                if mp_pdr_scale > min_effective_weight and st_calib_scale > 0.0:
+                    pred_mp_pdr_ts = torch.nan_to_num(base_ts_hat.detach() + effective_delta_ts)
+                    target_mp_pdr_ts = real_ts_for_st.to(
+                        device=pred_mp_pdr_ts.device,
+                        dtype=pred_mp_pdr_ts.dtype,
+                    )
+                    base_mp_pdr_ts = base_ts_hat.detach().to(
+                        device=pred_mp_pdr_ts.device,
+                        dtype=pred_mp_pdr_ts.dtype,
+                    )
+                    mp_pdr_total, mp_pdr_info = self._mp_pdr_loss(
+                        pred_mp_pdr_ts,
+                        target_mp_pdr_ts,
+                        base_mp_pdr_ts,
+                    )
+                    loss = loss + output.new_tensor(st_calib_scale * mp_pdr_scale) * mp_pdr_total
+
+                to_log['mp_pdr/scale'] = float(mp_pdr_scale)
+                to_log['mp_pdr/seq_factor'] = float(mp_pdr_seq_factor)
+                to_log['mp_pdr/warmup'] = float(mp_pdr_warmup)
+                to_log['mp_pdr/total'] = torch.nan_to_num(mp_pdr_total).detach().item()
+                if mp_pdr_info is not None:
+                    to_log['mp_pdr/dyn'] = torch.nan_to_num(mp_pdr_info["dyn"]).detach().item()
+                    to_log['mp_pdr/dir'] = torch.nan_to_num(mp_pdr_info["dir"]).detach().item()
+                    to_log['mp_pdr/guard'] = torch.nan_to_num(mp_pdr_info["guard"]).detach().item()
+                    to_log['mp_pdr/windows'] = float(mp_pdr_info["windows"])
+                    to_log['mp_pdr/horizons'] = float(mp_pdr_info["horizons"])
+                else:
+                    to_log['mp_pdr/dyn'] = 0.0
+                    to_log['mp_pdr/dir'] = 0.0
+                    to_log['mp_pdr/guard'] = 0.0
+                    to_log['mp_pdr/windows'] = 0.0
+                    to_log['mp_pdr/horizons'] = 0.0
             if bool(getattr(self.args, "st_effective_align", False)):
                 if out_ts is None:
                     out_ts = self.img_to_ts(output)
