@@ -1,0 +1,10 @@
+timestamp            dataset  epoch  disc_mean  disc_std  pred_mean  pred_std  cross_corr_mean  context_fid_mean  eval_command                                                                                      
+2026-06-03T23:43:53  energy   50     0.097      0.0108    0.2509     0.0001    0.5232           -34.4351          python run_unconditional.py --config ./configs/unconditional/energy.yaml --train_budget f3_500long
+2026-06-04T00:51:56  energy   100    0.133      0.003     0.251      0.0002    0.6455           -35.2495          python run_unconditional.py --config ./configs/unconditional/energy.yaml --train_budget f3_500long
+2026-06-04T02:00:28  energy   150    0.0489     0.0075    0.2506     0.0002    0.6078           -32.9265          python run_unconditional.py --config ./configs/unconditional/energy.yaml --train_budget f3_500long
+2026-06-04T03:09:14  energy   200    0.0411     0.0062    0.2504     0.0002    0.5377           -35.0791          python run_unconditional.py --config ./configs/unconditional/energy.yaml --train_budget f3_500long
+2026-06-04T04:18:28  energy   250    0.035      0.0043    0.2502     0.0002    0.5385           -31.1653          python run_unconditional.py --config ./configs/unconditional/energy.yaml --train_budget f3_500long
+2026-06-04T05:27:04  energy   300    0.0338     0.0053    0.2499     0.0003    0.4936           -35.9292          python run_unconditional.py --config ./configs/unconditional/energy.yaml --train_budget f3_500long
+2026-06-04T06:35:52  energy   350    0.0558     0.0163    0.2499     0.0003    0.5769           -35.0361          python run_unconditional.py --config ./configs/unconditional/energy.yaml --train_budget f3_500long
+2026-06-04T07:41:24  energy   400    0.0419     0.0194    0.2499     0.0003    0.4574           -41.0597          python run_unconditional.py --config ./configs/unconditional/energy.yaml --train_budget f3_500long
+2026-06-04T08:47:11  energy   450    0.0598     0.023     0.2499     0.0003    0.5532           -34.9448          python run_unconditional.py --config ./configs/unconditional/energy.yaml --train_budget f3_500long

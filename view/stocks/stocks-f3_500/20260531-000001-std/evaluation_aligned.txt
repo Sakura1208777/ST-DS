@@ -1,0 +1,11 @@
+timestamp            dataset  epoch  disc_mean  disc_std  pred_mean  pred_std  cross_corr_mean  context_fid_mean  eval_command                                                                                      
+2026-05-31T17:58:30  stocks    50     0.0239     0.01      0.0368     0.0001    0.0091           0.0242            python run_unconditional.py --config ./configs/unconditional/stocks.yaml --train_budget f3_std_500
+2026-05-31T18:08:10  stocks    100    0.0131     0.0076    0.0367     0.0001    0.0076           0.0141            python run_unconditional.py --config ./configs/unconditional/stocks.yaml --train_budget f3_std_500
+2026-05-31T18:18:27  stocks    150    0.0159     0.0131    0.0367     0.0001    0.0032           0.0151            python run_unconditional.py --config ./configs/unconditional/stocks.yaml --train_budget f3_std_500
+2026-05-31T18:28:24  stocks    200    0.017      0.0097    0.0366     0.0001    0.0095           0.0229            python run_unconditional.py --config ./configs/unconditional/stocks.yaml --train_budget f3_std_500
+2026-05-31T18:37:58  stocks    250    0.0113     0.0046    0.0367     0.0001    0.0066           0.0091            python run_unconditional.py --config ./configs/unconditional/stocks.yaml --train_budget f3_std_500
+2026-05-31T18:46:55  stocks    300    0.0115     0.0087    0.0368     0.0001    0.0071           0.0067            python run_unconditional.py --config ./configs/unconditional/stocks.yaml --train_budget f3_std_500
+2026-05-31T18:55:46  stocks    350    0.0149     0.0168    0.0367     0.0001    0.0035           0.0206            python run_unconditional.py --config ./configs/unconditional/stocks.yaml --train_budget f3_std_500
+2026-05-31T19:05:15  stocks    400    0.018      0.0094    0.0368     0.0001    0.0057           0.0171            python run_unconditional.py --config ./configs/unconditional/stocks.yaml --train_budget f3_std_500
+2026-05-31T19:14:36  stocks    450    0.0146     0.0114    0.0366     0.0002    0.0018           0.0301            python run_unconditional.py --config ./configs/unconditional/stocks.yaml --train_budget f3_std_500
+2026-05-31T19:23:40  stocks    500    0.0201     0.0103    0.0366     0.0002    0.0068           0.0227            python run_unconditional.py --config ./configs/unconditional/stocks.yaml --train_budget f3_std_500

@@ -1,0 +1,11 @@
+timestamp            dataset  epoch  disc_mean  disc_std  pred_mean  pred_std  cross_corr_mean  context_fid_mean  eval_command                                                                                
+2026-06-04T14:39:15  stocks   50     0.0304     0.0112    0.0369     0.0001    0.0055           -18.3727          python run_unconditional.py --config ./configs/unconditional/stocks.yaml --train_budget pro4
+2026-06-04T15:03:08  stocks   100    0.0102     0.0125    0.0367     0.0001    0.0031           -21.1446          python run_unconditional.py --config ./configs/unconditional/stocks.yaml --train_budget pro4
+2026-06-04T15:25:42  stocks   150    0.0076     0.0063    0.0367     0.0001    0.0053           -24.8396          python run_unconditional.py --config ./configs/unconditional/stocks.yaml --train_budget pro4
+2026-06-04T15:49:50  stocks   200    0.0345     0.0507    0.0367     0.0001    0.0093           -19.1547          python run_unconditional.py --config ./configs/unconditional/stocks.yaml --train_budget pro4
+2026-06-04T16:13:49  stocks   250    0.0606     0.1103    0.0367     0.0       0.0091           -26.1724          python run_unconditional.py --config ./configs/unconditional/stocks.yaml --train_budget pro4
+2026-06-04T16:36:56  stocks   300    0.0146     0.0173    0.0368     0.0001    0.0048           -21.9978          python run_unconditional.py --config ./configs/unconditional/stocks.yaml --train_budget pro4
+2026-06-04T17:01:04  stocks   350    0.0183     0.0096    0.0367     0.0001    0.002            -20.5872          python run_unconditional.py --config ./configs/unconditional/stocks.yaml --train_budget pro4
+2026-06-04T17:25:06  stocks   400    0.015      0.0104    0.0367     0.0001    0.0034           -17.4033          python run_unconditional.py --config ./configs/unconditional/stocks.yaml --train_budget pro4
+2026-06-04T17:48:48  stocks   450    0.0156     0.0112    0.0367     0.0001    0.0045           -24.6862          python run_unconditional.py --config ./configs/unconditional/stocks.yaml --train_budget pro4
+2026-06-04T18:13:02  stocks   500    0.0138     0.0074    0.0366     0.0001    0.0066           -22.2405          python run_unconditional.py --config ./configs/unconditional/stocks.yaml --train_budget pro4

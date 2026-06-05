@@ -1,0 +1,13 @@
+timestamp,dataset,epoch,disc_mean,disc_std,pred_mean,pred_std,cross_corr_mean,context_fid_mean,eval_command,checkpoint_type,checkpoint_path
+2026-05-31T12:04:24,energy,50,0.136,0.0189,0.2511,0.0001,0.6185,0.0524,python run_unconditional.py --config ./configs/unconditional/energy.yaml --train_budget f3_std_500,,
+2026-05-31T12:40:31,energy,100,0.1372,0.0061,0.2512,0.0002,0.497,0.046,python run_unconditional.py --config ./configs/unconditional/energy.yaml --train_budget f3_std_500,,
+2026-05-31T13:17:16,energy,150,0.0437,0.0087,0.2507,0.0001,0.7841,0.0383,python run_unconditional.py --config ./configs/unconditional/energy.yaml --train_budget f3_std_500,,
+2026-05-31T13:55:11,energy,200,0.0388,0.0067,0.2505,0.0002,0.5154,0.0383,python run_unconditional.py --config ./configs/unconditional/energy.yaml --train_budget f3_std_500,,
+2026-05-31T14:33:26,energy,250,0.0305,0.0052,0.2502,0.0001,0.5515,0.0299,python run_unconditional.py --config ./configs/unconditional/energy.yaml --train_budget f3_std_500,,
+2026-05-31T15:10:18,energy,300,0.0283,0.0051,0.25,0.0003,0.4481,0.0269,python run_unconditional.py --config ./configs/unconditional/energy.yaml --train_budget f3_std_500,,
+2026-05-31T15:46:13,energy,350,0.0433,0.0105,0.2498,0.0004,0.5031,0.0366,python run_unconditional.py --config ./configs/unconditional/energy.yaml --train_budget f3_std_500,,
+2026-05-31T16:23:45,energy,400,0.0498,0.0106,0.2499,0.0002,0.464,0.0311,python run_unconditional.py --config ./configs/unconditional/energy.yaml --train_budget f3_std_500,,
+2026-05-31T16:59:58,energy,450,0.0295,0.0061,0.2498,0.0002,0.613,0.0222,python run_unconditional.py --config ./configs/unconditional/energy.yaml --train_budget f3_std_500,,
+2026-05-31T17:39:20,energy,500,0.049,0.0125,0.2501,0.0003,0.6285,0.029,python run_unconditional.py --config ./configs/unconditional/energy.yaml --train_budget f3_std_500 --resume true,,
+2026-06-03T09:29:55,energy,best,0.3774,0.0055,0.2507,0.0002,0.6247,0.1185,python run_visualization.py --config ./configs/unconditional/energy.yaml --train_budget f3_500 --run_id 20260531-000001,best,./logs\energy\energy-f3_500\20260531-000001\checkpoint
+2026-06-03T09:59:39,energy,best,0.0282,0.0052,0.2497,0.0004,0.5352,0.0301,python run_visualization.py --config ./configs/unconditional/energy.yaml --train_budget f3_500 --run_id 20260531-000001,best,./logs\energy\energy-f3_500\20260531-000001\checkpoint
