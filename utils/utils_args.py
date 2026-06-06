@@ -154,6 +154,11 @@ def _add_st_ds_args(parser):
     parser.add_argument('--st_internal_alignment_floor', type=float, default=None)
     parser.add_argument('--st_internal_delta_ratio_max', type=float, default=None)
     parser.add_argument('--st_internal_highfreq_leak_max', type=float, default=None)
+    parser.add_argument('--st_internal_best_delta_growth', type=float, default=None)
+    parser.add_argument('--st_internal_best_highfreq_growth', type=float, default=None)
+    parser.add_argument('--st_internal_cancel_on_external_improve', type=_str2bool, default=None)
+    parser.add_argument('--st_internal_external_confirm_evals', type=int, default=None)
+    parser.add_argument('--st_internal_hard_external_confirm_evals', type=int, default=None)
     parser.add_argument('--st_internal_structural_soft_ratio', type=float, default=None)
     parser.add_argument('--st_internal_structural_hard_ratio', type=float, default=None)
     parser.add_argument('--st_internal_saturation_ratio', type=float, default=None)
@@ -435,101 +440,6 @@ _TRAIN_BUDGET_PRESETS = {
     },
     }
 
-# === [F3-500P] f3_500p ===
-# Method: 500-epoch F3 tuned to stabilize the post-freeze best checkpoint window.
-# Isolation: standalone full preset; safe to delete independently from f3_500.
-_TRAIN_BUDGET_PRESETS["f3_500p"] = {
-    "epochs": 500,
-    "logging_iter": 50,
-    "st_freeze": True,
-    "st_freeze_warmup": 250,
-    "st_freeze_patience": 2,
-    "st_freeze_threshold": 0.005,
-    "st_freeze_hard_threshold": 0.012,
-    "st_freeze_pct_threshold": 0.20,
-    "st_freeze_min_abs": 0.002,
-    "st_freeze_hard_pct_threshold": 0.35,
-    "st_freeze_hard_min_abs": 0.006,
-    "st_freeze_std_threshold": 0.0035,
-    "st_freeze_std_ratio": 1.60,
-    "st_freeze_std_min_abs": 0.0035,
-    "st_freeze_lr_ratio": 0.22,
-    "st_freeze_watch": False,
-    "st_post_freeze_patience": 999,
-    "st_post_freeze_threshold": 999.0,
-    "st_post_freeze_hard_threshold": 999.0,
-    "st_post_freeze_std_threshold": 999.0,
-    "st_post_freeze_std_ratio": 999.0,
-    "st_alpha": 0.06,
-    "st_alpha_max": 0.09,
-    "st_warmup_epochs": 100,
-    "st_residual_calib": True,
-    "st_residual_warmup_epochs": 100,
-    "st_residual_target_scale": 0.40,
-    "st_feature_fusion": True,
-    "st_feature_channels": 64,
-    "st_feature_scale_max": 0.025,
-    "st_feature_init_scale": 0.004,
-    "st_feature_zero_init": True,
-    "st_feature_sigma_gate": True,
-    "st_feature_sigma_mid": -1.0,
-    "st_feature_sigma_scale": 0.75,
-    "st_feature_warmup_epochs": 250,
-    "st_feature_norm_max": 0.015,
-    "st_feature_input_clip": 3.0,
-    "lambda_st_residual": 0.05,
-    "lambda_st_delta_reg": 0.001,
-    "lambda_st_raw_delta_reg": 0.00015,
-    "lambda_st_effective": 0.045,
-    "lambda_st_effective_ratio": 0.018,
-    "lambda_st_relation_reg": 0.001,
-    "st_effective_align": False,
-    "st_effective_max_ratio": 0.30,
-    "st_lma_affine": True,
-    "st_period_branch": True,
-    "st_period_candidates": [2, 3, 4, 6, 8, 12],
-    "st_period_min": 2,
-    "st_period_max": 12,
-    "st_period_temperature": 0.40,
-    "st_period_max_scale": 0.08,
-    "st_period_input_condition": False,
-    "st_period_input_channels": 64,
-    "st_period_input_alpha": 0.020,
-    "st_period_input_alpha_max": 0.040,
-    "st_period_input_alpha_learnable": True,
-    "st_period_input_warmup_epochs": 120,
-    "st_period_input_max_scale": 0.14,
-    "st_period_input_init_scale": 0.02,
-    "st_detach_base_for_style": False,
-    "st_branch_style_calib": False,
-    "st_var_relation": True,
-    "st_var_relation_rank": 8,
-    "st_var_relation_beta": 0.08,
-    "st_var_relation_init_beta": 0.0,
-    "lambda_ts": 0.08,
-    "ds_warmup_epochs": 120,
-    "lambda_ds_trend": 0.04,
-    "lambda_ds_season": 0.04,
-    "lambda_ds_freq": 0.012,
-    "lambda_ds_corr": 0.004,
-    "lambda_ds_dist": 0.004,
-    "use_final_dist_train": True,
-    "lambda_final_mean": 0.004,
-    "lambda_final_std": 0.008,
-    "lambda_final_diff_std": 0.016,
-    "lambda_final_quantile": 0.010,
-    "lambda_final_highfreq": 0.005,
-    "use_period_train": False,
-    "period_lma_kernels": [1, 2, 4, 6, 12],
-    "period_max_lag": 12,
-    "period_warmup_epochs": 120,
-    "period_late_start_ratio": 0.72,
-    "period_late_min_scale": 0.50,
-    "lambda_period_autocorr": 0.008,
-    "lambda_period_amp": 0.005,
-    "lambda_period_phase": 0.0015,
-}
-
 # === [PRO3] pro3 ===
 # Method: internal-F3 freeze; train like f3_500, detect ST damage internally, then restore/freeze from external best.
 # Isolation: independent pro preset; freeze trigger is internal, rollback follows the normal best-checkpoint metric.
@@ -550,6 +460,11 @@ _TRAIN_BUDGET_PRESETS["pro3"] = {
     "st_internal_alignment_floor": 0.10,
     "st_internal_delta_ratio_max": 0.75,
     "st_internal_highfreq_leak_max": 1.50,
+    "st_internal_best_delta_growth": 0.0,
+    "st_internal_best_highfreq_growth": 0.0,
+    "st_internal_cancel_on_external_improve": False,
+    "st_internal_external_confirm_evals": 1,
+    "st_internal_hard_external_confirm_evals": 1,
     "st_internal_structural_soft_ratio": 1.0,
     "st_internal_structural_hard_ratio": 1.15,
     "st_internal_saturation_ratio": 0.92,
@@ -764,6 +679,11 @@ _TRAIN_BUDGET_PRESETS["pro6"] = {
     "st_internal_alignment_floor": 0.10,
     "st_internal_delta_ratio_max": 0.75,
     "st_internal_highfreq_leak_max": 1.50,
+    "st_internal_best_delta_growth": 0.12,
+    "st_internal_best_highfreq_growth": 0.30,
+    "st_internal_cancel_on_external_improve": True,
+    "st_internal_external_confirm_evals": 2,
+    "st_internal_hard_external_confirm_evals": 1,
     "st_internal_structural_soft_ratio": 1.0,
     "st_internal_structural_hard_ratio": 1.15,
     "st_internal_saturation_ratio": 0.92,
@@ -976,6 +896,11 @@ def _apply_st_ds_defaults(parsed_args):
         "st_internal_alignment_floor": 0.05,
         "st_internal_delta_ratio_max": 0.65,
         "st_internal_highfreq_leak_max": 1.25,
+        "st_internal_best_delta_growth": 0.0,
+        "st_internal_best_highfreq_growth": 0.0,
+        "st_internal_cancel_on_external_improve": False,
+        "st_internal_external_confirm_evals": 1,
+        "st_internal_hard_external_confirm_evals": 1,
         "st_internal_structural_soft_ratio": 1.0,
         "st_internal_structural_hard_ratio": 1.15,
         "st_internal_saturation_ratio": 0.90,
@@ -1166,7 +1091,7 @@ def parse_args_uncond():
     parser.add_argument('--run_id', type=str, default=None,
                         help='training run id; leave empty to create a new id for training or use the latest id for evaluation')
     parser.add_argument('--train_budget', type=str,
-                                choices=['a2', 'f3_500', 'f3_500p',
+                                choices=['a2', 'f3_500',
                                  'pro3', 'pro4', 'pro6', 'auto'],
                         default=None,
                         help='generic ST-DS training budget preset')
@@ -1280,7 +1205,7 @@ def parse_args_cond():
     parser.add_argument('--run_id', type=str, default=None,
                         help='training run id; leave empty to create a new id for training or use the latest id for evaluation')
     parser.add_argument('--train_budget', type=str,
-                                choices=['a2', 'f3_500', 'f3_500p',
+                                choices=['a2', 'f3_500',
                                  'pro3', 'pro4', 'pro6', 'auto'],
                         default=None,
                         help='generic ST-DS training budget preset')

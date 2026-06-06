@@ -227,6 +227,12 @@ def save_checkpoint(ckpt_dir, state, epoch, ema_model=None, optimizer=None, best
                    'st_health_saturation_ema', 'st_health_base_ts_mse_ema',
                    'st_health_final_ts_mse_ema', 'st_health_final_base_mse_ratio_ema',
                    'st_health_effective_delta_norm_ema', 'st_health_best', 'st_health_best_epoch',
+                   'st_external_best_delta_ratio_ema', 'st_external_best_highfreq_leak_ema',
+                   'st_external_best_final_base_mse_ratio_ema', 'st_external_best_epoch',
+                   'st_external_best_delta_growth_ratio', 'st_external_best_highfreq_growth_ratio',
+                   'st_external_best_drift_active', 'st_internal_external_nonimprove_count',
+                   'st_internal_external_metric', 'st_internal_external_score',
+                   'st_internal_external_best_score',
                    'st_health_best_checkpoint', 'st_health_degrade_count',
                    'st_health_degrade_reason', 'st_freeze_reason'):
         if f3_key in state:
@@ -296,6 +302,8 @@ def restore_checkpoint(ckpt_dir, state, device='cuda:0', ema_model=None, optimiz
                        'st_health_saturation_ema', 'st_health_base_ts_mse_ema',
                        'st_health_final_ts_mse_ema', 'st_health_final_base_mse_ratio_ema',
                        'st_health_effective_delta_norm_ema', 'st_health_best', 'st_health_best_epoch',
+                       'st_external_best_delta_ratio_ema', 'st_external_best_highfreq_leak_ema',
+                       'st_external_best_final_base_mse_ratio_ema', 'st_external_best_epoch',
                        'st_health_best_checkpoint', 'st_health_degrade_count',
                        'st_health_degrade_reason', 'st_freeze_reason'):
             if f3_key in loaded_state:
