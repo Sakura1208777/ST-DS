@@ -397,14 +397,17 @@ class STInternalFreezeController:
 
         if self.state.get('st_health_degrade_count', 0) >= patience:
             external_freeze_reason = self.state.get('st_health_degrade_reason', 'unknown')
-            if internal_eval_due:
+            defer_until_external_eval = bool(
+                getattr(self.args, 'st_internal_cancel_on_external_improve', False)
+            )
+            if internal_eval_due or defer_until_external_eval:
                 self.state['_st_internal_freeze_pending'] = {
                     'reason': external_freeze_reason,
                     'metrics': freeze_metrics,
                     'epoch': human_epoch,
                 }
                 logging.info(
-                    "ST internal freeze: degradation detected at eval epoch %s; "
+                    "ST internal freeze: degradation detected at epoch %s; "
                     "deferring ST freeze until after external-best checkpoint update",
                     human_epoch,
                 )
@@ -452,6 +455,46 @@ class STInternalFreezeController:
                 curr_score,
             )
             self.state['st_health_degrade_count'] = 0
+            return optimizer, best_score
+
+        require_mature_best = bool(getattr(self.args, 'st_internal_external_require_mature_best', False))
+        external_best_mature = bool(self.state.get('st_internal_external_best_mature', False))
+        if cancel_on_external_improve and require_mature_best and not external_best_mature:
+            logging.info(
+                "ST internal freeze: delayed at epoch %s; external best is not mature "
+                "(reason=%s, %s=%.4f, best=%.4f, improvement=%.4f, required=%.4f)",
+                human_epoch,
+                pending_freeze_reason,
+                curr_score_metric,
+                curr_score,
+                best_score,
+                float(self.state.get('st_internal_external_best_improvement', float('nan'))),
+                float(self.state.get('st_internal_external_best_required_improvement', float('nan'))),
+            )
+            self.state['st_health_degrade_count'] = max(
+                int(self.state.get('st_health_degrade_count', 0) or 0) - 1,
+                0,
+            )
+            return optimizer, best_score
+
+        require_external_degrade = bool(getattr(self.args, 'st_internal_external_require_degrade', False))
+        external_degraded = bool(self.state.get('st_internal_external_degraded', False))
+        if cancel_on_external_improve and require_external_degrade and not external_degraded:
+            logging.info(
+                "ST internal freeze: delayed at epoch %s; external metric has not degraded enough "
+                "(reason=%s, %s=%.4f, best=%.4f, degrade=%.4f, required=%.4f)",
+                human_epoch,
+                pending_freeze_reason,
+                curr_score_metric,
+                curr_score,
+                best_score,
+                float(self.state.get('st_internal_external_degrade', float('nan'))),
+                float(self.state.get('st_internal_external_required_degrade', float('nan'))),
+            )
+            self.state['st_health_degrade_count'] = max(
+                int(self.state.get('st_health_degrade_count', 0) or 0) - 1,
+                0,
+            )
             return optimizer, best_score
 
         if cancel_on_external_improve and external_nonimprove_count < required_external_confirm_evals:

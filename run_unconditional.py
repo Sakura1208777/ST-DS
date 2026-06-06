@@ -202,6 +202,10 @@ def main(args):
                 # --- save checkpoint ---
                 curr_score_metric = select_best_score_metric(scores)
                 curr_score = scores[curr_score_metric]
+                if bool(getattr(args, 'st_internal_freeze', False)):
+                    state.setdefault('st_internal_external_first_epoch', human_epoch)
+                    state.setdefault('st_internal_external_first_metric', curr_score_metric)
+                    state.setdefault('st_internal_external_first_score', float(curr_score))
                 prev_best_score = best_score
                 external_best_improved = curr_score < prev_best_score
                 state['st_internal_external_metric'] = curr_score_metric
@@ -221,6 +225,44 @@ def main(args):
                     state['st_internal_external_nonimprove_count'] = (
                         int(state.get('st_internal_external_nonimprove_count', 0) or 0) + 1
                     )
+                if bool(getattr(args, 'st_internal_freeze', False)):
+                    first_score = state.get('st_internal_external_first_score', None)
+                    first_epoch = int(state.get('st_internal_external_first_epoch', 0) or 0)
+                    best_epoch = int(state.get('best_score_epoch', 0) or 0)
+                    best_score_for_maturity = float(state.get('best_score', best_score))
+                    min_improve_pct = max(
+                        0.0,
+                        float(getattr(args, 'st_internal_external_best_min_improve_pct', 0.0) or 0.0),
+                    )
+                    min_improve_abs = max(
+                        0.0,
+                        float(getattr(args, 'st_internal_external_best_min_improve_abs', 0.0) or 0.0),
+                    )
+                    degrade_pct = max(
+                        0.0,
+                        float(getattr(args, 'st_internal_external_degrade_pct', 0.0) or 0.0),
+                    )
+                    degrade_abs = max(
+                        0.0,
+                        float(getattr(args, 'st_internal_external_degrade_abs', 0.0) or 0.0),
+                    )
+                    mature_best = False
+                    external_degraded = False
+                    if first_score is not None and np.isfinite(float(first_score)) and np.isfinite(best_score_for_maturity):
+                        first_score = float(first_score)
+                        improvement = first_score - best_score_for_maturity
+                        required_improvement = max(min_improve_abs, abs(first_score) * min_improve_pct)
+                        mature_best = best_epoch > first_epoch and improvement >= required_improvement
+                        state['st_internal_external_best_improvement'] = float(improvement)
+                        state['st_internal_external_best_required_improvement'] = float(required_improvement)
+                    if np.isfinite(curr_score) and np.isfinite(best_score_for_maturity):
+                        external_degrade = float(curr_score) - best_score_for_maturity
+                        required_degrade = max(degrade_abs, abs(best_score_for_maturity) * degrade_pct)
+                        external_degraded = external_degrade >= required_degrade
+                        state['st_internal_external_degrade'] = float(external_degrade)
+                        state['st_internal_external_required_degrade'] = float(required_degrade)
+                    state['st_internal_external_best_mature'] = bool(mature_best)
+                    state['st_internal_external_degraded'] = bool(external_degraded)
                 optimizer, best_score = st_controller.apply_pending_after_eval(
                     human_epoch,
                     curr_score_metric,

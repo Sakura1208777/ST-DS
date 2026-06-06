@@ -159,6 +159,12 @@ def _add_st_ds_args(parser):
     parser.add_argument('--st_internal_cancel_on_external_improve', type=_str2bool, default=None)
     parser.add_argument('--st_internal_external_confirm_evals', type=int, default=None)
     parser.add_argument('--st_internal_hard_external_confirm_evals', type=int, default=None)
+    parser.add_argument('--st_internal_external_require_mature_best', type=_str2bool, default=None)
+    parser.add_argument('--st_internal_external_best_min_improve_pct', type=float, default=None)
+    parser.add_argument('--st_internal_external_best_min_improve_abs', type=float, default=None)
+    parser.add_argument('--st_internal_external_require_degrade', type=_str2bool, default=None)
+    parser.add_argument('--st_internal_external_degrade_pct', type=float, default=None)
+    parser.add_argument('--st_internal_external_degrade_abs', type=float, default=None)
     parser.add_argument('--st_internal_structural_soft_ratio', type=float, default=None)
     parser.add_argument('--st_internal_structural_hard_ratio', type=float, default=None)
     parser.add_argument('--st_internal_saturation_ratio', type=float, default=None)
@@ -682,8 +688,14 @@ _TRAIN_BUDGET_PRESETS["pro6"] = {
     "st_internal_best_delta_growth": 0.12,
     "st_internal_best_highfreq_growth": 0.30,
     "st_internal_cancel_on_external_improve": True,
-    "st_internal_external_confirm_evals": 2,
+    "st_internal_external_confirm_evals": 1,
     "st_internal_hard_external_confirm_evals": 1,
+    "st_internal_external_require_mature_best": True,
+    "st_internal_external_best_min_improve_pct": 0.05,
+    "st_internal_external_best_min_improve_abs": 1e-4,
+    "st_internal_external_require_degrade": True,
+    "st_internal_external_degrade_pct": 0.20,
+    "st_internal_external_degrade_abs": 1e-4,
     "st_internal_structural_soft_ratio": 1.0,
     "st_internal_structural_hard_ratio": 1.15,
     "st_internal_saturation_ratio": 0.92,
@@ -901,6 +913,12 @@ def _apply_st_ds_defaults(parsed_args):
         "st_internal_cancel_on_external_improve": False,
         "st_internal_external_confirm_evals": 1,
         "st_internal_hard_external_confirm_evals": 1,
+        "st_internal_external_require_mature_best": False,
+        "st_internal_external_best_min_improve_pct": 0.05,
+        "st_internal_external_best_min_improve_abs": 0.0,
+        "st_internal_external_require_degrade": False,
+        "st_internal_external_degrade_pct": 0.20,
+        "st_internal_external_degrade_abs": 1e-4,
         "st_internal_structural_soft_ratio": 1.0,
         "st_internal_structural_hard_ratio": 1.15,
         "st_internal_saturation_ratio": 0.90,
