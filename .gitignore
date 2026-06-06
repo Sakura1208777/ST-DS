@@ -1,6 +1,18 @@
+# 日志和运行产物
 logs/
-GitHub常用指令.txt
 data/
+
+# Python 缓存
+__pycache__/
+**/__pycache__/
+*.pyc
+
+# VSCode 本地配置
 .vscode/
+
+# Codex / GitHub 临时目录
 .codex_tmp/
 .github_refs/
+
+# 本地说明文件
+GitHub常用指令.txt
