@@ -1,3 +1,6 @@
 logs/
 GitHub常用指令.txt
 data/
+.vscode/
+.codex_tmp/
+.github_refs/
