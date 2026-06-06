@@ -80,6 +80,60 @@ def main(args):
             if hasattr(model.net, 'period_input_alpha_raw') and model.net.period_input_alpha_raw is not None:
                 model.net.period_input_alpha_raw.requires_grad = False
 
+        def _restore_external_best_and_freeze(freeze_reason, freeze_metrics=None, freeze_epoch=None):
+            nonlocal optimizer, best_score
+            external_best_checkpoint = state.get('best_checkpoint', args.log_dir)
+            if not (
+                np.isfinite(float(best_score))
+                and external_best_checkpoint is not None
+                and os.path.exists(external_best_checkpoint)
+            ):
+                return False
+
+            freeze_metrics = freeze_metrics or {}
+            external_best_score = best_score
+            external_best_metric = state.get('best_score_metric', 'external_score')
+            external_best_epoch = state.get('best_score_epoch', 0)
+            logging.info(
+                "PRO3: internal health degraded; restoring external-best checkpoint "
+                "from epoch %s (%s=%.4f), then freeze ST "
+                "(reason=%s, health=%.4f, health_best=%.4f, final/base=%.4f, "
+                "current_final/base=%.4f, delta_ratio=%.4f, hf_leak=%.4f)",
+                external_best_epoch,
+                external_best_metric,
+                external_best_score,
+                freeze_reason,
+                float(freeze_metrics.get('health_ema', float('nan'))),
+                float(freeze_metrics.get('health_best', float('nan'))),
+                float(freeze_metrics.get('final_base_mse_ratio_ema', float('nan'))),
+                float(freeze_metrics.get('curr_final_base_mse_ratio', float('nan'))),
+                float(freeze_metrics.get('delta_ratio_ema', float('nan'))),
+                float(freeze_metrics.get('highfreq_leak_ema', float('nan'))),
+            )
+            ema_model_restore = model.model_ema if args.ema else None
+            restore_checkpoint(external_best_checkpoint, state, device=args.device,
+                               ema_model=ema_model_restore, optimizer=optimizer)
+            best_score = external_best_score
+            state['best_score'] = external_best_score
+            state['best_score_metric'] = external_best_metric
+            state['best_score_epoch'] = external_best_epoch
+            state['best_checkpoint'] = external_best_checkpoint
+            state['st_freeze_reason'] = freeze_reason
+            if args.ema and ema_model_restore is not None:
+                ema_model_restore.copy_to(model.net)
+            _apply_freeze()
+            health_freeze_lr_ratio = float(getattr(args, 'st_internal_freeze_lr_ratio', 0.22))
+            optimizer = torch.optim.AdamW(
+                filter(lambda p: p.requires_grad, model.parameters()),
+                lr=args.learning_rate * health_freeze_lr_ratio,
+                weight_decay=args.weight_decay,
+            )
+            state['optimizer'] = optimizer
+            state['st_frozen'] = True
+            state['st_frozen_epoch'] = freeze_epoch if freeze_epoch is not None else 0
+            state['st_health_degrade_count'] = 0
+            return True
+
         if st_any_freeze_enabled and state.get('st_frozen', False):
             _apply_freeze()
         train_bar_format = "{desc}: {percentage:3.0f}%|{n_fmt}/{total_fmt} [{elapsed}<{remaining}{postfix}]"
@@ -355,55 +409,36 @@ def main(args):
                         freeze_reason = None
                     state['st_health_degrade_reason'] = freeze_reason
 
-                    external_best_checkpoint = state.get('best_checkpoint', args.log_dir)
+                    freeze_metrics = {
+                        'health_ema': health_ema,
+                        'health_best': state.get('st_health_best', float('nan')),
+                        'final_base_mse_ratio_ema': final_base_mse_ratio_ema,
+                        'curr_final_base_mse_ratio': curr_final_base_mse_ratio,
+                        'delta_ratio_ema': delta_ratio_ema,
+                        'highfreq_leak_ema': highfreq_leak_ema,
+                    }
+                    internal_eval_due = (human_epoch % args.logging_iter == 0) or (human_epoch == args.epochs)
                     if (
                         state.get('st_health_degrade_count', 0) >= patience
-                        and np.isfinite(float(best_score))
-                        and external_best_checkpoint is not None
-                        and os.path.exists(external_best_checkpoint)
                     ):
-                        external_best_score = best_score
-                        external_best_metric = state.get('best_score_metric', 'external_score')
-                        external_best_epoch = state.get('best_score_epoch', 0)
                         external_freeze_reason = state.get('st_health_degrade_reason', 'unknown')
-                        logging.info(
-                            "PRO3: internal health degraded; restoring external-best checkpoint "
-                            "from epoch %s (%s=%.4f), then freeze ST "
-                            "(reason=%s, health=%.4f, health_best=%.4f, final/base=%.4f, "
-                            "current_final/base=%.4f, delta_ratio=%.4f, hf_leak=%.4f)",
-                            external_best_epoch,
-                            external_best_metric,
-                            external_best_score,
-                            external_freeze_reason,
-                            health_ema,
-                            state.get('st_health_best', float('nan')),
-                            final_base_mse_ratio_ema,
-                            curr_final_base_mse_ratio,
-                            delta_ratio_ema,
-                            highfreq_leak_ema,
-                        )
-                        ema_model_restore = model.model_ema if args.ema else None
-                        restore_checkpoint(external_best_checkpoint, state, device=args.device,
-                                           ema_model=ema_model_restore, optimizer=optimizer)
-                        best_score = external_best_score
-                        state['best_score'] = external_best_score
-                        state['best_score_metric'] = external_best_metric
-                        state['best_score_epoch'] = external_best_epoch
-                        state['best_checkpoint'] = external_best_checkpoint
-                        state['st_freeze_reason'] = external_freeze_reason
-                        if args.ema and ema_model_restore is not None:
-                            ema_model_restore.copy_to(model.net)
-                        _apply_freeze()
-                        health_freeze_lr_ratio = float(getattr(args, 'st_internal_freeze_lr_ratio', 0.22))
-                        optimizer = torch.optim.AdamW(
-                            filter(lambda p: p.requires_grad, model.parameters()),
-                            lr=args.learning_rate * health_freeze_lr_ratio,
-                            weight_decay=args.weight_decay,
-                        )
-                        state['optimizer'] = optimizer
-                        state['st_frozen'] = True
-                        state['st_frozen_epoch'] = human_epoch
-                        state['st_health_degrade_count'] = 0
+                        if internal_eval_due:
+                            state['_st_internal_freeze_pending'] = {
+                                'reason': external_freeze_reason,
+                                'metrics': freeze_metrics,
+                                'epoch': human_epoch,
+                            }
+                            logging.info(
+                                "PRO3: internal degradation detected at eval epoch %s; "
+                                "deferring ST freeze until after external-best checkpoint update",
+                                human_epoch,
+                            )
+                        else:
+                            _restore_external_best_and_freeze(
+                                external_freeze_reason,
+                                freeze_metrics=freeze_metrics,
+                                freeze_epoch=human_epoch,
+                            )
 
             # --- evaluation loop ---
             st_watch_due = (
@@ -640,6 +675,13 @@ def main(args):
                     state['best_checkpoint'] = args.log_dir
                     ema_model = model.model_ema if args.ema else None
                     save_checkpoint(args.log_dir, state, epoch, ema_model, optimizer=optimizer, best_score=best_score)
+                pending_internal_freeze = state.pop('_st_internal_freeze_pending', None)
+                if pending_internal_freeze and not state.get('st_frozen', False):
+                    _restore_external_best_and_freeze(
+                        pending_internal_freeze.get('reason', 'unknown'),
+                        freeze_metrics=pending_internal_freeze.get('metrics', {}),
+                        freeze_epoch=pending_internal_freeze.get('epoch', human_epoch),
+                    )
                 del gen_sig, real_sig, scores
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
