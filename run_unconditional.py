@@ -59,6 +59,8 @@ def main(args):
         # --- train model ---
         logging.info(f"Continuing training loop from epoch {init_epoch}.")
         best_score = state.get('best_score', float('inf'))
+        if np.isfinite(float(best_score)):
+            state.setdefault('best_checkpoint', args.log_dir)
         should_early_stop = False
         st_freeze_enabled = getattr(args, 'st_freeze', False)
         st_internal_freeze_enabled = getattr(args, 'st_internal_freeze', False)
@@ -143,6 +145,10 @@ def main(args):
                 curr_delta_ratio = _avg_log('st/internal_delta_ratio')
                 curr_highfreq_leak = _avg_log('st/internal_highfreq_leak')
                 curr_saturation = _avg_log('st/internal_saturation')
+                curr_base_ts_mse = _avg_log('st/base_ts_mse')
+                curr_final_ts_mse = _avg_log('st/final_ts_mse')
+                curr_final_base_mse_ratio = _avg_log('st/final_base_mse_ratio')
+                curr_effective_delta_norm = _avg_log('st/effective_delta_norm')
 
                 health_ema_decay = min(0.999, max(0.0, float(getattr(args, 'st_internal_health_ema', 0.95))))
 
@@ -158,91 +164,233 @@ def main(args):
                 delta_ratio_ema = _update_ema('st_health_delta_ratio_ema', curr_delta_ratio)
                 highfreq_leak_ema = _update_ema('st_health_highfreq_leak_ema', curr_highfreq_leak)
                 saturation_ema = _update_ema('st_health_saturation_ema', curr_saturation)
+                base_ts_mse_ema = _update_ema('st_health_base_ts_mse_ema', curr_base_ts_mse)
+                final_ts_mse_ema = _update_ema('st_health_final_ts_mse_ema', curr_final_ts_mse)
+                final_base_mse_ratio_ema = _update_ema(
+                    'st_health_final_base_mse_ratio_ema',
+                    curr_final_base_mse_ratio,
+                )
+                effective_delta_norm_ema = _update_ema(
+                    'st_health_effective_delta_norm_ema',
+                    curr_effective_delta_norm,
+                )
 
                 total_epochs = max(int(getattr(args, 'epochs', 0) or 0), 1)
-                warmup_ratio = float(getattr(args, 'st_internal_freeze_warmup_ratio', 0.25) or 0.0)
-                warmup_epoch = max(1, int(float(total_epochs) * warmup_ratio))
+                soft_warmup_ratio = float(getattr(args, 'st_internal_freeze_warmup_ratio', 0.25) or 0.0)
+                legacy_health_trigger = bool(getattr(args, 'st_internal_legacy_health_trigger', True))
+                monitor_warmup_ratio = float(
+                    getattr(args, 'st_internal_monitor_warmup_ratio', soft_warmup_ratio) or 0.0
+                )
+                hard_warmup_ratio = float(
+                    getattr(args, 'st_internal_hard_freeze_warmup_ratio', monitor_warmup_ratio) or 0.0
+                )
+                monitor_epoch = max(1, int(float(total_epochs) * monitor_warmup_ratio))
+                hard_epoch = max(monitor_epoch, int(float(total_epochs) * hard_warmup_ratio))
+                soft_epoch = max(hard_epoch, int(float(total_epochs) * soft_warmup_ratio))
                 patience = max(int(getattr(args, 'st_internal_freeze_patience', 3) or 1), 1)
                 health_drop = max(0.0, float(getattr(args, 'st_internal_health_drop', 0.20) or 0.0))
                 reliability_floor = float(getattr(args, 'st_internal_reliability_floor', 0.30) or 0.0)
                 alignment_floor = float(getattr(args, 'st_internal_alignment_floor', 0.05) or 0.0)
                 delta_ratio_max = float(getattr(args, 'st_internal_delta_ratio_max', 0.65) or 0.0)
                 highfreq_leak_max = float(getattr(args, 'st_internal_highfreq_leak_max', 1.25) or 0.0)
+                structural_soft_ratio = max(
+                    1.0,
+                    float(getattr(args, 'st_internal_structural_soft_ratio', 1.0) or 1.0),
+                )
+                structural_hard_ratio = max(
+                    structural_soft_ratio,
+                    float(getattr(args, 'st_internal_structural_hard_ratio', 1.15) or 1.15),
+                )
                 saturation_ratio = float(getattr(args, 'st_internal_saturation_ratio', 0.90) or 0.0)
+                final_mse_ratio_max = float(getattr(args, 'st_internal_final_mse_ratio_max', 1.05) or 0.0)
+                final_mse_hard_ratio = float(getattr(args, 'st_internal_final_mse_hard_ratio', 1.10) or 0.0)
+                final_mse_min_abs = max(
+                    0.0,
+                    float(getattr(args, 'st_internal_final_mse_min_abs', 0.0) or 0.0),
+                )
+                delta_ratio_min = max(
+                    0.0,
+                    float(getattr(args, 'st_internal_delta_ratio_min', 0.0) or 0.0),
+                )
 
                 state.setdefault('st_health_best', float('-inf'))
                 state.setdefault('st_health_best_epoch', 0)
-                state.setdefault('st_health_best_checkpoint', None)
                 state.setdefault('st_health_degrade_count', 0)
 
-                if human_epoch >= warmup_epoch:
+                if human_epoch >= monitor_epoch:
+                    best_health = float(state['st_health_best'])
                     if health_ema > float(state['st_health_best']):
                         state['st_health_best'] = health_ema
                         state['st_health_best_epoch'] = human_epoch
-                        state['st_health_degrade_count'] = 0
-                        health_best_path = os.path.join(os.path.dirname(args.log_dir), 'checkpoint.st_health_best')
-                        state['st_health_best_checkpoint'] = health_best_path
-                        ema_model_save = model.model_ema if args.ema else None
-                        save_checkpoint(health_best_path, state, epoch, ema_model_save,
-                                        optimizer=optimizer, best_score=best_score)
+                        health_degrade = False
                     else:
-                        best_health = float(state['st_health_best'])
                         health_degrade = (
                             best_health > float('-inf')
                             and health_ema < best_health * (1.0 - health_drop)
                         )
-                        residual_unreliable = (
-                            reliability_floor > 0
-                            and alignment_floor > 0
-                            and reliability_ema < reliability_floor
-                            and alignment_ema < alignment_floor
-                        )
-                        unstable_delta = (
-                            delta_ratio_max > 0
-                            and highfreq_leak_max > 0
-                            and delta_ratio_ema > delta_ratio_max
-                            and highfreq_leak_ema > highfreq_leak_max
-                        )
-                        alignment_degraded = (
-                            alignment_floor > 0
-                            and alignment_ema < alignment_floor
-                        )
-                        structural_degrade = (
-                            residual_unreliable
-                            or unstable_delta
+                    residual_unreliable = (
+                        reliability_floor > 0
+                        and alignment_floor > 0
+                        and reliability_ema < reliability_floor
+                        and alignment_ema < alignment_floor
+                    )
+                    st_active = (
+                        delta_ratio_min <= 0
+                        or delta_ratio_ema > delta_ratio_min
+                        or curr_delta_ratio > delta_ratio_min
+                    )
+                    unstable_delta = (
+                        delta_ratio_max > 0
+                        and highfreq_leak_max > 0
+                        and delta_ratio_ema > delta_ratio_max
+                        and highfreq_leak_ema > highfreq_leak_max
+                    )
+                    structural_soft_delta = (
+                        delta_ratio_max > 0
+                        and delta_ratio_ema > delta_ratio_max * structural_soft_ratio
+                        and curr_delta_ratio > delta_ratio_max
+                    )
+                    structural_soft_highfreq = (
+                        highfreq_leak_max > 0
+                        and highfreq_leak_ema > highfreq_leak_max * structural_soft_ratio
+                        and curr_highfreq_leak > highfreq_leak_max
+                    )
+                    structural_hard_delta = (
+                        delta_ratio_max > 0
+                        and delta_ratio_ema > delta_ratio_max
+                        and curr_delta_ratio > delta_ratio_max * structural_hard_ratio
+                    )
+                    structural_hard_highfreq = (
+                        highfreq_leak_max > 0
+                        and highfreq_leak_ema > highfreq_leak_max
+                        and curr_highfreq_leak > highfreq_leak_max * structural_hard_ratio
+                    )
+                    alignment_degraded = (
+                        alignment_floor > 0
+                        and alignment_ema < alignment_floor
+                    )
+                    structural_degrade = (
+                        residual_unreliable
+                        or unstable_delta
+                        or alignment_degraded
+                        or (highfreq_leak_max > 0 and highfreq_leak_ema > highfreq_leak_max)
+                        or (delta_ratio_max > 0 and delta_ratio_ema > delta_ratio_max)
+                    )
+                    structure_confirmed = (
+                        (legacy_health_trigger and health_degrade)
+                        or final_base_mse_ratio_ema > 1.0
+                        or curr_final_base_mse_ratio > 1.0
+                    )
+                    structural_soft_degrade = (
+                        st_active
+                        and structure_confirmed
+                        and (
+                            unstable_delta
+                            or structural_soft_delta
+                            or structural_soft_highfreq
                             or alignment_degraded
-                            or (highfreq_leak_max > 0 and highfreq_leak_ema > highfreq_leak_max)
-                            or (delta_ratio_max > 0 and delta_ratio_ema > delta_ratio_max)
                         )
-                        saturated_and_degrading = (
-                            saturation_ratio > 0
-                            and saturation_ema > saturation_ratio
-                            and health_degrade
+                    )
+                    structural_hard_degrade = (
+                        st_active
+                        and structure_confirmed
+                        and (
+                            (structural_hard_delta and highfreq_leak_max > 0 and curr_highfreq_leak > highfreq_leak_max)
+                            or (structural_hard_highfreq and delta_ratio_max > 0 and curr_delta_ratio > delta_ratio_max)
+                            or (structural_hard_delta and structural_hard_highfreq)
                         )
-                        if (health_degrade and structural_degrade) or saturated_and_degrading:
-                            state['st_health_degrade_count'] += 1
-                        else:
-                            state['st_health_degrade_count'] = 0
+                    )
+                    saturated_and_degrading = (
+                        saturation_ratio > 0
+                        and saturation_ema > saturation_ratio
+                        and health_degrade
+                    )
+                    final_mse_soft_degrade = (
+                        final_mse_ratio_max > 0
+                        and base_ts_mse_ema > 0
+                        and final_ts_mse_ema > base_ts_mse_ema * final_mse_ratio_max + final_mse_min_abs
+                        and curr_final_base_mse_ratio > final_mse_ratio_max
+                    )
+                    final_mse_hard_degrade = (
+                        final_mse_hard_ratio > 0
+                        and curr_final_base_mse_ratio > final_mse_hard_ratio
+                        and final_base_mse_ratio_ema > final_mse_ratio_max
+                    )
+                    st_harmful_soft_degrade = (
+                        st_active
+                        and final_mse_soft_degrade
+                        and effective_delta_norm_ema > 0
+                    )
+                    st_harmful_hard_degrade = (
+                        st_active
+                        and final_mse_hard_degrade
+                        and effective_delta_norm_ema > 0
+                    )
+                    freeze_reason = None
+                    if human_epoch >= hard_epoch and st_harmful_hard_degrade:
+                        state['st_health_degrade_count'] = patience
+                        freeze_reason = 'hard_final_mse'
+                    elif human_epoch >= hard_epoch and structural_hard_degrade:
+                        state['st_health_degrade_count'] = patience
+                        freeze_reason = 'hard_structure'
+                    elif human_epoch >= soft_epoch and st_harmful_soft_degrade:
+                        state['st_health_degrade_count'] += 1
+                        freeze_reason = 'soft_final_mse'
+                    elif human_epoch >= soft_epoch and structural_soft_degrade:
+                        state['st_health_degrade_count'] += 1
+                        freeze_reason = 'soft_structure'
+                    elif (
+                        legacy_health_trigger
+                        and human_epoch >= soft_epoch
+                        and health_degrade
+                        and structural_degrade
+                    ):
+                        state['st_health_degrade_count'] += 1
+                        freeze_reason = 'health_structural'
+                    elif legacy_health_trigger and human_epoch >= soft_epoch and saturated_and_degrading:
+                        state['st_health_degrade_count'] += 1
+                        freeze_reason = 'alpha_saturation'
+                    else:
+                        state['st_health_degrade_count'] = 0
+                        freeze_reason = None
+                    state['st_health_degrade_reason'] = freeze_reason
 
-                    health_best_checkpoint = state.get('st_health_best_checkpoint')
+                    external_best_checkpoint = state.get('best_checkpoint', args.log_dir)
                     if (
                         state.get('st_health_degrade_count', 0) >= patience
-                        and health_best_checkpoint is not None
-                        and os.path.exists(health_best_checkpoint)
+                        and np.isfinite(float(best_score))
+                        and external_best_checkpoint is not None
+                        and os.path.exists(external_best_checkpoint)
                     ):
+                        external_best_score = best_score
+                        external_best_metric = state.get('best_score_metric', 'external_score')
+                        external_best_epoch = state.get('best_score_epoch', 0)
+                        external_freeze_reason = state.get('st_health_degrade_reason', 'unknown')
                         logging.info(
-                            "PRO3: restoring ST-health-best checkpoint from epoch %s, then freeze "
-                            "(health=%.4f, best=%.4f)",
-                            state.get('st_health_best_epoch', 0),
+                            "PRO3: internal health degraded; restoring external-best checkpoint "
+                            "from epoch %s (%s=%.4f), then freeze ST "
+                            "(reason=%s, health=%.4f, health_best=%.4f, final/base=%.4f, "
+                            "current_final/base=%.4f, delta_ratio=%.4f, hf_leak=%.4f)",
+                            external_best_epoch,
+                            external_best_metric,
+                            external_best_score,
+                            external_freeze_reason,
                             health_ema,
                             state.get('st_health_best', float('nan')),
+                            final_base_mse_ratio_ema,
+                            curr_final_base_mse_ratio,
+                            delta_ratio_ema,
+                            highfreq_leak_ema,
                         )
                         ema_model_restore = model.model_ema if args.ema else None
-                        external_best_score = best_score
-                        restore_checkpoint(health_best_checkpoint, state, device=args.device,
+                        restore_checkpoint(external_best_checkpoint, state, device=args.device,
                                            ema_model=ema_model_restore, optimizer=optimizer)
                         best_score = external_best_score
                         state['best_score'] = external_best_score
+                        state['best_score_metric'] = external_best_metric
+                        state['best_score_epoch'] = external_best_epoch
+                        state['best_checkpoint'] = external_best_checkpoint
+                        state['st_freeze_reason'] = external_freeze_reason
                         if args.ema and ema_model_restore is not None:
                             ema_model_restore.copy_to(model.net)
                         _apply_freeze()
@@ -479,10 +627,17 @@ def main(args):
                             should_early_stop = True
 
                 # --- save checkpoint ---
-                curr_score = scores['marginal_score_mean'] if 'marginal_score_mean' in scores else scores['disc_mean']
+                if 'marginal_score_mean' in scores:
+                    curr_score_metric = 'marginal_score_mean'
+                else:
+                    curr_score_metric = 'disc_mean'
+                curr_score = scores[curr_score_metric]
                 if curr_score < best_score:
                     best_score = curr_score
                     state['best_score'] = best_score
+                    state['best_score_metric'] = curr_score_metric
+                    state['best_score_epoch'] = human_epoch
+                    state['best_checkpoint'] = args.log_dir
                     ema_model = model.model_ema if args.ema else None
                     save_checkpoint(args.log_dir, state, epoch, ema_model, optimizer=optimizer, best_score=best_score)
                 del gen_sig, real_sig, scores

@@ -235,14 +235,21 @@ class ImagenTime(nn.Module):
             if power.shape[1] > 1:
                 power = power[:, 1:]
             freq_total = power.sum(dim=1, keepdim=True).clamp_min(1e-8)
-            topk = max(1, int(getattr(self.args, "residual_reliability_freq_topk", 3) or 3))
+            topk_arg = getattr(self.args, "residual_reliability_freq_topk", 3)
+            topk = int(topk_arg) if topk_arg is not None else 3
+            if topk <= 0:
+                topk = max(2, min(length // 15, 10))
+            topk = max(1, topk)
             topk = min(topk, power.shape[1])
             freq_peak_ratio = power.topk(topk, dim=1).values.sum(dim=1, keepdim=True) / freq_total
             freq_peak_ratio = freq_peak_ratio.reshape(-1, 1, 1).to(dtype=residual_ts.dtype)
         else:
             freq_peak_ratio = torch.zeros_like(total_energy)
 
-        acf_max_lag = max(0, int(getattr(self.args, "residual_reliability_acf_max_lag", 12) or 0))
+        acf_arg = getattr(self.args, "residual_reliability_acf_max_lag", 12)
+        acf_max_lag = int(acf_arg) if acf_arg is not None else 12
+        if acf_max_lag <= 0:
+            acf_max_lag = max(6, min(length // 3, 48))
         max_lag = min(acf_max_lag, max(length - 1, 0))
         if max_lag >= 2:
             var = centered.square().mean(dim=(1, 2), keepdim=True).clamp_min(1e-8)
@@ -314,7 +321,12 @@ class ImagenTime(nn.Module):
         return torch.cat(features, dim=1)
 
     def _predictive_structure_loss(self, pred_ts, target_ts):
-        max_lag = int(getattr(self.args, "pred_structure_max_lag", 6) or 6)
+        seq_len = int(pred_ts.shape[1])
+        max_lag_arg = getattr(self.args, "pred_structure_max_lag", 6)
+        max_lag = int(max_lag_arg) if max_lag_arg is not None else 6
+        auto_lag = max_lag <= 0
+        if auto_lag:
+            max_lag = max(4, min(seq_len // 6, 24))
         include_cross = bool(getattr(self.args, "pred_structure_include_cross", True))
         no_self = bool(getattr(self.args, "pred_structure_no_self", True))
         max_channels = int(getattr(self.args, "pred_structure_max_channels", 64) or 64)
@@ -343,6 +355,9 @@ class ImagenTime(nn.Module):
                 confidence = min_conf + (1.0 - min_conf) * confidence.pow(power)
             else:
                 confidence = torch.ones_like(strength)
+            if auto_lag:
+                length_factor = min(1.0, 24.0 / max(float(seq_len), 24.0))
+                confidence = confidence * length_factor
         beta = max(float(getattr(self.args, "pred_structure_huber_beta", 0.03) or 0.03), 1e-6)
         raw = F.smooth_l1_loss(pred_features, target_features, beta=beta, reduction="none").mean(dim=1, keepdim=True)
         loss = (raw * confidence).mean()
@@ -354,128 +369,77 @@ class ImagenTime(nn.Module):
         }
         return torch.nan_to_num(loss), info
 
-    def _mp_pdr_scale(self, seq_len):
-        if not bool(getattr(self.args, "use_mp_pdr", False)):
-            return 0.0, 0.0, 0.0
-        seq_len = max(int(seq_len), 0)
-        threshold = float(getattr(self.args, "mp_pdr_seq_len_threshold", 96.0) or 96.0)
-        tau = max(float(getattr(self.args, "mp_pdr_seq_len_tau", 32.0) or 32.0), 1e-6)
-        sigmoid_arg = max(-60.0, min(60.0, (float(seq_len) - threshold) / tau))
-        seq_factor = 1.0 / (1.0 + math.exp(-sigmoid_arg))
-
+    def _transition_teacher_scale(self):
+        if not bool(getattr(self.args, "use_transition_teacher", False)):
+            return 0.0
         total_epochs = max(int(getattr(self.args, "epochs", 0) or 0), 1)
-        start_ratio = max(0.0, float(getattr(self.args, "mp_pdr_warmup_ratio", 0.40) or 0.0))
-        window_ratio = max(0.0, float(getattr(self.args, "mp_pdr_warmup_window", 0.10) or 0.0))
+        start_ratio = max(0.0, float(getattr(self.args, "transition_teacher_warmup_ratio", 0.35) or 0.0))
+        window_ratio = max(0.0, float(getattr(self.args, "transition_teacher_warmup_window", 0.10) or 0.0))
         start = float(total_epochs) * start_ratio
         window = max(1.0, float(total_epochs) * window_ratio)
         current_epoch = float(getattr(self, "epoch", total_epochs))
         if current_epoch <= start:
-            warmup_scale = 0.0
-        else:
-            warmup_scale = min(1.0, max(0.0, (current_epoch - start) / window))
-        return float(seq_factor * warmup_scale), float(seq_factor), float(warmup_scale)
+            return 0.0
+        return min(1.0, max(0.0, (current_epoch - start) / window))
 
-    def _mp_pdr_window_starts(self, seq_len, window_len, device):
-        seq_len = max(int(seq_len), 0)
-        window_len = max(int(window_len), 0)
-        if seq_len <= 0 or window_len <= 0:
-            return []
-        max_start = max(seq_len - window_len, 0)
-        starts = [0, seq_len // 4, seq_len // 2]
-        if bool(getattr(self.args, "mp_pdr_random_window", True)):
-            if self.training and max_start > 0:
-                random_start = int(torch.randint(0, max_start + 1, (1,), device=device).item())
-            else:
-                random_start = (3 * seq_len) // 4
-            starts.append(random_start)
-        starts.append(max_start)
-
-        clipped = []
-        seen = set()
-        for start in starts:
-            start = int(max(0, min(int(start), max_start)))
-            if start not in seen:
-                clipped.append(start)
-                seen.add(start)
-        max_windows = max(1, int(getattr(self.args, "mp_pdr_num_windows", 4) or 4))
-        return clipped[:max_windows]
-
-    def _mp_pdr_loss(self, pred_ts, target_ts, base_ts):
+    def _transition_teacher_loss(self, pred_ts, target_ts):
         pred_ts = torch.nan_to_num(pred_ts)
         target_ts = torch.nan_to_num(target_ts).to(device=pred_ts.device, dtype=pred_ts.dtype)
-        base_ts = torch.nan_to_num(base_ts).to(device=pred_ts.device, dtype=pred_ts.dtype)
-        batch, seq_len, _ = pred_ts.shape
-        horizons = getattr(self.args, "mp_pdr_horizons", None) or [1, 2, 4, 8]
-        horizons = sorted({int(h) for h in horizons if int(h) > 0})
-        if seq_len <= 1 or not horizons:
+        batch, seq_len, channels = pred_ts.shape
+        horizons = getattr(self.args, "transition_teacher_horizons", None) or [1, 2, 4]
+        horizons = sorted({int(h) for h in horizons if int(h) > 0 and int(h) < seq_len})
+        if seq_len <= 1 or channels <= 0 or not horizons:
             zero = pred_ts.new_zeros(())
-            return zero, {"dyn": zero, "dir": zero, "guard": zero, "windows": 0, "horizons": 0}
+            return zero, {"horizons": 0, "channels": 0}
 
-        max_horizon = max(horizons)
-        window_ratio = max(0.0, float(getattr(self.args, "mp_pdr_window_ratio", 0.15) or 0.15))
-        window_len = max(max_horizon + 2, int(float(seq_len) * window_ratio))
-        window_len = min(max(window_len, 2), seq_len)
-        valid_horizons = [h for h in horizons if h < window_len]
-        if not valid_horizons:
-            zero = pred_ts.new_zeros(())
-            return zero, {"dyn": zero, "dir": zero, "guard": zero, "windows": 0, "horizons": 0}
+        max_channels = max(1, int(getattr(self.args, "transition_teacher_max_channels", 64) or 64))
+        used_channels = min(max_channels, channels)
+        pred_ts = pred_ts[:, :, :used_channels]
+        target_ts = target_ts[:, :, :used_channels]
 
-        starts = self._mp_pdr_window_starts(seq_len, window_len, pred_ts.device)
-        if not starts:
-            zero = pred_ts.new_zeros(())
-            return zero, {"dyn": zero, "dir": zero, "guard": zero, "windows": 0, "horizons": 0}
+        with torch.no_grad():
+            mean = target_ts.mean(dim=(0, 1), keepdim=True)
+            scale = target_ts.std(dim=(0, 1), keepdim=True, unbiased=False).clamp_min(1e-6)
+            target_norm = (target_ts - mean) / scale
+        pred_norm = (pred_ts - mean) / scale
 
-        dyn_losses = []
-        dir_losses = []
-        guard_losses = []
-        guard_ratio = max(0.0, float(getattr(self.args, "mp_pdr_guard_ratio", 0.25) or 0.25))
-        eps = 1e-6
-        for start in starts:
-            end = min(int(start) + window_len, seq_len)
-            if end - int(start) < 2:
+        ridge = max(float(getattr(self.args, "transition_teacher_ridge", 0.01) or 0.01), 1e-8)
+        losses = []
+        used_horizons = []
+        for horizon in horizons:
+            real_past = target_norm[:, :-horizon, :].reshape(-1, used_channels)
+            real_future = target_norm[:, horizon:, :].reshape(-1, used_channels)
+            pred_past = pred_norm[:, :-horizon, :].reshape(-1, used_channels)
+            pred_future = pred_norm[:, horizon:, :].reshape(-1, used_channels)
+            if real_past.shape[0] <= used_channels + 1:
                 continue
-            pred_window = pred_ts[:, int(start):end, :]
-            real_window = target_ts[:, int(start):end, :]
-            base_window = base_ts[:, int(start):end, :]
-            for horizon in valid_horizons:
-                if horizon >= pred_window.shape[1]:
-                    continue
-                delta_pred = pred_window[:, horizon:, :] - pred_window[:, :-horizon, :]
-                delta_real = real_window[:, horizon:, :] - real_window[:, :-horizon, :]
-                delta_base = base_window[:, horizon:, :] - base_window[:, :-horizon, :]
-                dyn_losses.append(F.smooth_l1_loss(delta_pred, delta_real, reduction="mean"))
 
-                pred_flat = delta_pred.reshape(batch, -1)
-                real_flat = delta_real.reshape(batch, -1)
-                cosine = F.cosine_similarity(pred_flat, real_flat, dim=1, eps=eps)
-                dir_losses.append((1.0 - cosine).mean())
+            ones_real = torch.ones(real_past.shape[0], 1, device=real_past.device, dtype=real_past.dtype)
+            ones_pred = torch.ones(pred_past.shape[0], 1, device=pred_past.device, dtype=pred_past.dtype)
+            real_design = torch.cat([real_past, ones_real], dim=1)
+            pred_design = torch.cat([pred_past, ones_pred], dim=1)
 
-                residual_dyn = delta_pred - delta_base
-                residual_norm = residual_dyn.reshape(batch, -1).norm(dim=1)
-                base_norm = delta_base.reshape(batch, -1).norm(dim=1).clamp_min(eps)
-                ratio = residual_norm / base_norm
-                guard_losses.append(F.relu(ratio - guard_ratio).mean())
+            design = real_design.float()
+            future = real_future.float()
+            gram = design.transpose(0, 1).matmul(design) / max(float(design.shape[0]), 1.0)
+            rhs = design.transpose(0, 1).matmul(future) / max(float(design.shape[0]), 1.0)
+            eye = torch.eye(gram.shape[0], device=gram.device, dtype=gram.dtype)
+            eye[-1, -1] = 0.0
+            gram = gram + ridge * eye
+            try:
+                teacher = torch.linalg.solve(gram, rhs)
+            except RuntimeError:
+                teacher = torch.linalg.pinv(gram).matmul(rhs)
+            teacher = teacher.to(device=pred_design.device, dtype=pred_design.dtype)
+            pred_future_hat = pred_design.matmul(teacher)
+            losses.append(F.smooth_l1_loss(pred_future_hat, pred_future, reduction="mean"))
+            used_horizons.append(horizon)
 
-        if not dyn_losses:
+        if not losses:
             zero = pred_ts.new_zeros(())
-            return zero, {"dyn": zero, "dir": zero, "guard": zero, "windows": 0, "horizons": 0}
-
-        dyn_loss = torch.stack(dyn_losses).mean()
-        dir_loss = torch.stack(dir_losses).mean()
-        guard_loss = torch.stack(guard_losses).mean()
-        lambda_dyn = float(getattr(self.args, "lambda_mp_pdr_dyn", 0.0005) or 0.0005)
-        lambda_dir = float(getattr(self.args, "lambda_mp_pdr_dir", 0.0002) or 0.0002)
-        lambda_guard = float(getattr(self.args, "lambda_mp_pdr_guard", 0.0005) or 0.0005)
-        # Reserved for future gradient-conflict gating; currently disabled by default.
-        total = lambda_dyn * dyn_loss + lambda_dir * dir_loss + lambda_guard * guard_loss
-        info = {
-            "dyn": torch.nan_to_num(dyn_loss).detach(),
-            "dir": torch.nan_to_num(dir_loss).detach(),
-            "guard": torch.nan_to_num(guard_loss).detach(),
-            "windows": len(starts),
-            "horizons": len(valid_horizons),
-        }
-        return torch.nan_to_num(total), info
+            return zero, {"horizons": 0, "channels": used_channels}
+        loss = torch.stack(losses).mean()
+        return torch.nan_to_num(loss), {"horizons": len(used_horizons), "channels": used_channels}
 
     def _structured_target_blend(self):
         if not bool(getattr(self.args, "use_structured_st_target", False)):
@@ -805,12 +769,22 @@ class ImagenTime(nn.Module):
                 internal_health = (
                     reliability_for_health * alignment_score
                 ) / (1.0 + delta_penalty + highfreq_penalty + saturation_penalty)
+                with torch.no_grad():
+                    health_base_ts = torch.nan_to_num(base_ts_hat.detach())
+                    health_final_ts = torch.nan_to_num(base_ts_hat.detach() + effective_delta_ts.detach())
+                    health_real_ts = real_ts_for_st.to(device=health_base_ts.device, dtype=health_base_ts.dtype)
+                    internal_base_ts_mse = F.mse_loss(health_base_ts, health_real_ts)
+                    internal_final_ts_mse = F.mse_loss(health_final_ts, health_real_ts)
+                    internal_final_base_mse_ratio = internal_final_ts_mse / internal_base_ts_mse.clamp_min(1e-8)
             else:
                 alignment = None
                 delta_ratio = None
                 highfreq_leak = None
                 saturation = None
                 internal_health = None
+                internal_base_ts_mse = None
+                internal_final_ts_mse = None
+                internal_final_base_mse_ratio = None
             residual_pred_for_loss = effective_delta_ts
             target_for_residual_loss = target_delta
             huber_beta = max(float(getattr(self.args, "st_residual_huber_beta", 0.05)), 1e-6)
@@ -869,47 +843,32 @@ class ImagenTime(nn.Module):
                     to_log['pred_structure/feature_dim'] = torch.nan_to_num(
                         pred_structure_info["feature_dim"]
                     ).detach().item()
-            if bool(getattr(self.args, "use_mp_pdr", False)):
-                mp_pdr_scale, mp_pdr_seq_factor, mp_pdr_warmup = self._mp_pdr_scale(base_ts_hat.shape[1])
-                mp_pdr_total = output.new_tensor(0.0)
-                mp_pdr_info = None
-                min_effective_weight = max(
-                    0.0,
-                    float(getattr(self.args, "mp_pdr_min_effective_weight", 1e-6) or 1e-6),
-                )
-                if mp_pdr_scale > min_effective_weight and st_calib_scale > 0.0:
-                    pred_mp_pdr_ts = torch.nan_to_num(base_ts_hat.detach() + effective_delta_ts)
-                    target_mp_pdr_ts = real_ts_for_st.to(
-                        device=pred_mp_pdr_ts.device,
-                        dtype=pred_mp_pdr_ts.dtype,
+            if bool(getattr(self.args, "use_transition_teacher", False)):
+                teacher_scale = self._transition_teacher_scale()
+                teacher_loss = output.new_tensor(0.0)
+                teacher_info = None
+                if teacher_scale > 0.0 and st_calib_scale > 0.0:
+                    pred_teacher_ts = torch.nan_to_num(base_ts_hat.detach() + effective_delta_ts)
+                    target_teacher_ts = real_ts_for_st.to(
+                        device=pred_teacher_ts.device,
+                        dtype=pred_teacher_ts.dtype,
                     )
-                    base_mp_pdr_ts = base_ts_hat.detach().to(
-                        device=pred_mp_pdr_ts.device,
-                        dtype=pred_mp_pdr_ts.dtype,
+                    teacher_loss, teacher_info = self._transition_teacher_loss(
+                        pred_teacher_ts,
+                        target_teacher_ts,
                     )
-                    mp_pdr_total, mp_pdr_info = self._mp_pdr_loss(
-                        pred_mp_pdr_ts,
-                        target_mp_pdr_ts,
-                        base_mp_pdr_ts,
+                    lambda_transition_teacher = float(getattr(self.args, "lambda_transition_teacher", 0.0005) or 0.0005)
+                    loss = loss + output.new_tensor(st_calib_scale * teacher_scale) * (
+                        lambda_transition_teacher * teacher_loss
                     )
-                    loss = loss + output.new_tensor(st_calib_scale * mp_pdr_scale) * mp_pdr_total
-
-                to_log['mp_pdr/scale'] = float(mp_pdr_scale)
-                to_log['mp_pdr/seq_factor'] = float(mp_pdr_seq_factor)
-                to_log['mp_pdr/warmup'] = float(mp_pdr_warmup)
-                to_log['mp_pdr/total'] = torch.nan_to_num(mp_pdr_total).detach().item()
-                if mp_pdr_info is not None:
-                    to_log['mp_pdr/dyn'] = torch.nan_to_num(mp_pdr_info["dyn"]).detach().item()
-                    to_log['mp_pdr/dir'] = torch.nan_to_num(mp_pdr_info["dir"]).detach().item()
-                    to_log['mp_pdr/guard'] = torch.nan_to_num(mp_pdr_info["guard"]).detach().item()
-                    to_log['mp_pdr/windows'] = float(mp_pdr_info["windows"])
-                    to_log['mp_pdr/horizons'] = float(mp_pdr_info["horizons"])
+                to_log['transition_teacher/scale'] = float(teacher_scale)
+                to_log['transition_teacher/loss'] = torch.nan_to_num(teacher_loss).detach().item()
+                if teacher_info is not None:
+                    to_log['transition_teacher/horizons'] = float(teacher_info["horizons"])
+                    to_log['transition_teacher/channels'] = float(teacher_info["channels"])
                 else:
-                    to_log['mp_pdr/dyn'] = 0.0
-                    to_log['mp_pdr/dir'] = 0.0
-                    to_log['mp_pdr/guard'] = 0.0
-                    to_log['mp_pdr/windows'] = 0.0
-                    to_log['mp_pdr/horizons'] = 0.0
+                    to_log['transition_teacher/horizons'] = 0.0
+                    to_log['transition_teacher/channels'] = 0.0
             if bool(getattr(self.args, "st_effective_align", False)):
                 if out_ts is None:
                     out_ts = self.img_to_ts(output)
@@ -975,6 +934,11 @@ class ImagenTime(nn.Module):
                 to_log['st/internal_delta_ratio'] = torch.nan_to_num(delta_ratio).detach().mean().item()
                 to_log['st/internal_highfreq_leak'] = torch.nan_to_num(highfreq_leak).detach().mean().item()
                 to_log['st/internal_saturation'] = torch.nan_to_num(saturation).detach().mean().item()
+                to_log['st/base_ts_mse'] = torch.nan_to_num(internal_base_ts_mse).detach().item()
+                to_log['st/final_ts_mse'] = torch.nan_to_num(internal_final_ts_mse).detach().item()
+                to_log['st/final_base_mse_ratio'] = torch.nan_to_num(
+                    internal_final_base_mse_ratio
+                ).detach().item()
             trend_delta = st_state.get("trend_delta_ts")
             if trend_delta is not None:
                 to_log['st/trend_delta_norm'] = torch.nan_to_num(trend_delta).detach().square().mean().sqrt().item()

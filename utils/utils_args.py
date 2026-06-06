@@ -143,15 +143,24 @@ def _add_st_ds_args(parser):
     parser.add_argument('--st_internal_health', type=_str2bool, default=None)
     parser.add_argument('--st_internal_health_kernel', type=int, default=None)
     parser.add_argument('--st_internal_freeze', type=_str2bool, default=None)
+    parser.add_argument('--st_internal_monitor_warmup_ratio', type=float, default=None)
+    parser.add_argument('--st_internal_hard_freeze_warmup_ratio', type=float, default=None)
     parser.add_argument('--st_internal_freeze_warmup_ratio', type=float, default=None)
     parser.add_argument('--st_internal_health_ema', type=float, default=None)
     parser.add_argument('--st_internal_freeze_patience', type=int, default=None)
     parser.add_argument('--st_internal_health_drop', type=float, default=None)
+    parser.add_argument('--st_internal_legacy_health_trigger', type=_str2bool, default=None)
     parser.add_argument('--st_internal_reliability_floor', type=float, default=None)
     parser.add_argument('--st_internal_alignment_floor', type=float, default=None)
     parser.add_argument('--st_internal_delta_ratio_max', type=float, default=None)
     parser.add_argument('--st_internal_highfreq_leak_max', type=float, default=None)
+    parser.add_argument('--st_internal_structural_soft_ratio', type=float, default=None)
+    parser.add_argument('--st_internal_structural_hard_ratio', type=float, default=None)
     parser.add_argument('--st_internal_saturation_ratio', type=float, default=None)
+    parser.add_argument('--st_internal_final_mse_ratio_max', type=float, default=None)
+    parser.add_argument('--st_internal_final_mse_hard_ratio', type=float, default=None)
+    parser.add_argument('--st_internal_final_mse_min_abs', type=float, default=None)
+    parser.add_argument('--st_internal_delta_ratio_min', type=float, default=None)
     parser.add_argument('--st_internal_freeze_lr_ratio', type=float, default=None)
     parser.add_argument('--use_pred_structure_loss', type=_str2bool, default=None)
     parser.add_argument('--pred_structure_max_lag', type=int, default=None)
@@ -167,21 +176,13 @@ def _add_st_ds_args(parser):
     parser.add_argument('--pred_structure_confidence_power', type=float, default=None)
     parser.add_argument('--pred_structure_huber_beta', type=float, default=None)
     parser.add_argument('--lambda_pred_structure', type=float, default=None)
-    parser.add_argument('--use_mp_pdr', type=_str2bool, default=None)
-    parser.add_argument('--mp_pdr_num_windows', type=int, default=None)
-    parser.add_argument('--mp_pdr_window_ratio', type=float, default=None)
-    parser.add_argument('--mp_pdr_horizons', type=int, nargs='+', default=None)
-    parser.add_argument('--lambda_mp_pdr_dyn', type=float, default=None)
-    parser.add_argument('--lambda_mp_pdr_dir', type=float, default=None)
-    parser.add_argument('--lambda_mp_pdr_guard', type=float, default=None)
-    parser.add_argument('--mp_pdr_guard_ratio', type=float, default=None)
-    parser.add_argument('--mp_pdr_seq_len_threshold', type=float, default=None)
-    parser.add_argument('--mp_pdr_seq_len_tau', type=float, default=None)
-    parser.add_argument('--mp_pdr_warmup_ratio', type=float, default=None)
-    parser.add_argument('--mp_pdr_warmup_window', type=float, default=None)
-    parser.add_argument('--mp_pdr_random_window', type=_str2bool, default=None)
-    parser.add_argument('--mp_pdr_min_effective_weight', type=float, default=None)
-    parser.add_argument('--mp_pdr_conflict_gate', type=_str2bool, default=None)
+    parser.add_argument('--use_transition_teacher', type=_str2bool, default=None)
+    parser.add_argument('--transition_teacher_horizons', type=int, nargs='+', default=None)
+    parser.add_argument('--transition_teacher_ridge', type=float, default=None)
+    parser.add_argument('--transition_teacher_max_channels', type=int, default=None)
+    parser.add_argument('--transition_teacher_warmup_ratio', type=float, default=None)
+    parser.add_argument('--transition_teacher_warmup_window', type=float, default=None)
+    parser.add_argument('--lambda_transition_teacher', type=float, default=None)
     parser.add_argument('--lambda_st_residual', type=float, default=None)
     parser.add_argument('--lambda_st_delta_reg', type=float, default=None)
     parser.add_argument('--lambda_st_raw_delta_reg', type=float, default=None)
@@ -530,23 +531,32 @@ _TRAIN_BUDGET_PRESETS["f3_500p"] = {
 }
 
 # === [PRO3] pro3 ===
-# Method: internal-F3 freeze; train like f3_500, monitor ST health, then restore/freeze on internal degradation.
-# Isolation: independent pro preset with checkpoint.st_health_best; does not depend on F3 checkpoints.
+# Method: internal-F3 freeze; train like f3_500, detect ST damage internally, then restore/freeze from external best.
+# Isolation: independent pro preset; freeze trigger is internal, rollback follows the normal best-checkpoint metric.
 _TRAIN_BUDGET_PRESETS["pro3"] = {
     "epochs": 500,
     "logging_iter": 50,
     "st_freeze": False,
     "st_internal_health": True,
     "st_internal_freeze": True,
+    "st_internal_monitor_warmup_ratio": 0.20,
+    "st_internal_hard_freeze_warmup_ratio": 0.25,
     "st_internal_freeze_warmup_ratio": 0.35,
     "st_internal_health_ema": 0.90,
-    "st_internal_freeze_patience": 1,
+    "st_internal_freeze_patience": 2,
     "st_internal_health_drop": 0.15,
+    "st_internal_legacy_health_trigger": True,
     "st_internal_reliability_floor": 0.0,
     "st_internal_alignment_floor": 0.10,
     "st_internal_delta_ratio_max": 0.75,
     "st_internal_highfreq_leak_max": 1.50,
+    "st_internal_structural_soft_ratio": 1.0,
+    "st_internal_structural_hard_ratio": 1.15,
     "st_internal_saturation_ratio": 0.92,
+    "st_internal_final_mse_ratio_max": 1.02,
+    "st_internal_final_mse_hard_ratio": 1.08,
+    "st_internal_final_mse_min_abs": 0.0,
+    "st_internal_delta_ratio_min": 0.03,
     "st_internal_health_kernel": 5,
     "st_internal_freeze_lr_ratio": 0.22,
     "use_late_decay": False,
@@ -734,15 +744,35 @@ _TRAIN_BUDGET_PRESETS["pro4"] = {
 }
 
 
-# === [PRO5] pro5 ===
-# Method: pro4 + metric-preserving multi-window predictive dynamics regularization.
-# Isolation: standalone full preset; does not inherit from pro4 at runtime.
-_TRAIN_BUDGET_PRESETS["pro5"] = {
+# === [PRO6] pro6 ===
+# Method: pro4 residual-reliability/predictive-structure training plus pro3 internal freeze rollback.
+# Isolation: standalone full preset; does not inherit from pro3 or pro4 at runtime.
+_TRAIN_BUDGET_PRESETS["pro6"] = {
     "epochs": 500,
     "logging_iter": 50,
     "st_freeze": False,
-    "st_internal_health": False,
-    "st_internal_freeze": False,
+    "st_internal_health": True,
+    "st_internal_freeze": True,
+    "st_internal_monitor_warmup_ratio": 0.20,
+    "st_internal_hard_freeze_warmup_ratio": 0.25,
+    "st_internal_freeze_warmup_ratio": 0.35,
+    "st_internal_health_ema": 0.90,
+    "st_internal_freeze_patience": 2,
+    "st_internal_health_drop": 0.15,
+    "st_internal_legacy_health_trigger": False,
+    "st_internal_reliability_floor": 0.0,
+    "st_internal_alignment_floor": 0.10,
+    "st_internal_delta_ratio_max": 0.75,
+    "st_internal_highfreq_leak_max": 1.50,
+    "st_internal_structural_soft_ratio": 1.0,
+    "st_internal_structural_hard_ratio": 1.15,
+    "st_internal_saturation_ratio": 0.92,
+    "st_internal_final_mse_ratio_max": 1.02,
+    "st_internal_final_mse_hard_ratio": 1.08,
+    "st_internal_final_mse_min_abs": 0.0,
+    "st_internal_delta_ratio_min": 0.03,
+    "st_internal_health_kernel": 5,
+    "st_internal_freeze_lr_ratio": 0.22,
     "use_late_decay": False,
     "use_structured_st_target": False,
     "use_residual_reliability": True,
@@ -767,21 +797,6 @@ _TRAIN_BUDGET_PRESETS["pro5"] = {
     "pred_structure_confidence_power": 1.0,
     "pred_structure_huber_beta": 0.03,
     "lambda_pred_structure": 0.003,
-    "use_mp_pdr": True,
-    "mp_pdr_num_windows": 4,
-    "mp_pdr_window_ratio": 0.15,
-    "mp_pdr_horizons": [1, 2, 4, 8],
-    "lambda_mp_pdr_dyn": 0.0005,
-    "lambda_mp_pdr_dir": 0.0002,
-    "lambda_mp_pdr_guard": 0.0005,
-    "mp_pdr_guard_ratio": 0.25,
-    "mp_pdr_seq_len_threshold": 96.0,
-    "mp_pdr_seq_len_tau": 32.0,
-    "mp_pdr_warmup_ratio": 0.40,
-    "mp_pdr_warmup_window": 0.10,
-    "mp_pdr_random_window": True,
-    "mp_pdr_min_effective_weight": 1e-6,
-    "mp_pdr_conflict_gate": False,
     "st_alpha": 0.06,
     "st_alpha_max": 0.10,
     "st_warmup_epochs": 100,
@@ -851,7 +866,6 @@ _TRAIN_BUDGET_PRESETS["pro5"] = {
     "lambda_period_amp": 0.005,
     "lambda_period_phase": 0.0015,
 }
-
 
 
 def _resolve_train_budget(parsed_args):
@@ -951,15 +965,24 @@ def _apply_st_ds_defaults(parsed_args):
         "st_internal_health": False,
         "st_internal_health_kernel": 5,
         "st_internal_freeze": False,
+        "st_internal_monitor_warmup_ratio": 0.25,
+        "st_internal_hard_freeze_warmup_ratio": 0.25,
         "st_internal_freeze_warmup_ratio": 0.25,
         "st_internal_health_ema": 0.95,
         "st_internal_freeze_patience": 3,
         "st_internal_health_drop": 0.20,
+        "st_internal_legacy_health_trigger": True,
         "st_internal_reliability_floor": 0.30,
         "st_internal_alignment_floor": 0.05,
         "st_internal_delta_ratio_max": 0.65,
         "st_internal_highfreq_leak_max": 1.25,
+        "st_internal_structural_soft_ratio": 1.0,
+        "st_internal_structural_hard_ratio": 1.15,
         "st_internal_saturation_ratio": 0.90,
+        "st_internal_final_mse_ratio_max": 1.05,
+        "st_internal_final_mse_hard_ratio": 1.10,
+        "st_internal_final_mse_min_abs": 0.0,
+        "st_internal_delta_ratio_min": 0.02,
         "st_internal_freeze_lr_ratio": 0.22,
         "use_pred_structure_loss": False,
         "pred_structure_max_lag": 6,
@@ -975,21 +998,13 @@ def _apply_st_ds_defaults(parsed_args):
         "pred_structure_confidence_power": 1.0,
         "pred_structure_huber_beta": 0.03,
         "lambda_pred_structure": 0.003,
-        "use_mp_pdr": False,
-        "mp_pdr_num_windows": 4,
-        "mp_pdr_window_ratio": 0.15,
-        "mp_pdr_horizons": [1, 2, 4, 8],
-        "lambda_mp_pdr_dyn": 0.0005,
-        "lambda_mp_pdr_dir": 0.0002,
-        "lambda_mp_pdr_guard": 0.0005,
-        "mp_pdr_guard_ratio": 0.25,
-        "mp_pdr_seq_len_threshold": 96.0,
-        "mp_pdr_seq_len_tau": 32.0,
-        "mp_pdr_warmup_ratio": 0.40,
-        "mp_pdr_warmup_window": 0.10,
-        "mp_pdr_random_window": True,
-        "mp_pdr_min_effective_weight": 1e-6,
-        "mp_pdr_conflict_gate": False,
+        "use_transition_teacher": False,
+        "transition_teacher_horizons": [1, 2, 4],
+        "transition_teacher_ridge": 0.01,
+        "transition_teacher_max_channels": 64,
+        "transition_teacher_warmup_ratio": 0.35,
+        "transition_teacher_warmup_window": 0.10,
+        "lambda_transition_teacher": 0.0005,
         "st_alpha": 0.05,
         "st_alpha_max": 0.08,
         "st_alpha_learnable": True,
@@ -1151,8 +1166,8 @@ def parse_args_uncond():
     parser.add_argument('--run_id', type=str, default=None,
                         help='training run id; leave empty to create a new id for training or use the latest id for evaluation')
     parser.add_argument('--train_budget', type=str,
-                        choices=['a2', 'f3_500', 'f3_500p',
-                                 'pro3', 'pro4', 'pro5', 'auto'],
+                                choices=['a2', 'f3_500', 'f3_500p',
+                                 'pro3', 'pro4', 'pro6', 'auto'],
                         default=None,
                         help='generic ST-DS training budget preset')
     parser.add_argument('--log_dir', default='./logs', help='path to save logs')
@@ -1265,8 +1280,8 @@ def parse_args_cond():
     parser.add_argument('--run_id', type=str, default=None,
                         help='training run id; leave empty to create a new id for training or use the latest id for evaluation')
     parser.add_argument('--train_budget', type=str,
-                        choices=['a2', 'f3_500', 'f3_500p',
-                                 'pro3', 'pro4', 'pro5', 'auto'],
+                                choices=['a2', 'f3_500', 'f3_500p',
+                                 'pro3', 'pro4', 'pro6', 'auto'],
                         default=None,
                         help='generic ST-DS training budget preset')
     parser.add_argument('--log_dir', default='./logs', help='path to save logs')
