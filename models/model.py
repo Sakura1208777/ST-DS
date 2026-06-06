@@ -658,9 +658,7 @@ class ImagenTime(nn.Module):
             else:
                 st_warmup = min(1.0, max(0.0, float(getattr(self, "epoch", st_warmup_epochs)) / float(st_warmup_epochs)))
             st_calib_scale = st_warmup
-            if getattr(self.net, 'freeze_st_loss', False):
-                st_calib_scale = 0.0
-            elif bool(getattr(self.args, "late_decay_style_loss", False)):
+            if bool(getattr(self.args, "late_decay_style_loss", False)):
                 st_calib_scale *= late_decay_scale
             base_ts_hat = st_state["base_ts_hat"]
             delta_ts = st_state["delta_ts"]
@@ -733,58 +731,6 @@ class ImagenTime(nn.Module):
                 trust_ts = trust_ts[:1].expand(base_ts_hat.shape[0])
             trust_ts = trust_ts.reshape(base_ts_hat.shape[0], 1, 1)
             effective_delta_ts = torch.nan_to_num(gate_ts * alpha_ts * trust_ts * delta_ts)
-            use_internal_health = bool(getattr(self.args, "st_internal_health", False))
-            if use_internal_health:
-                target_norm_h = target_delta.square().mean(dim=(1, 2)).sqrt().clamp_min(1e-8)
-                effective_norm_h = effective_delta_ts.square().mean(dim=(1, 2)).sqrt()
-                alignment = (
-                    effective_delta_ts * target_delta
-                ).mean(dim=(1, 2)) / (target_norm_h * effective_norm_h).clamp_min(1e-8)
-                alignment_score = alignment.clamp(0.0, 1.0)
-
-                delta_ratio = effective_norm_h / target_norm_h
-                health_kernel = max(2, int(getattr(self.args, "st_internal_health_kernel", 5) or 5))
-                health_kernel = min(health_kernel, int(target_delta.shape[1]))
-                target_hf = target_delta - self._moving_average_ts(target_delta, health_kernel)
-                effective_hf = effective_delta_ts - self._moving_average_ts(effective_delta_ts, health_kernel)
-                target_hf_energy = target_hf.square().mean(dim=(1, 2)).clamp_min(1e-8)
-                effective_hf_energy = effective_hf.square().mean(dim=(1, 2))
-                highfreq_leak = effective_hf_energy / target_hf_energy
-
-                alpha_max = max(float(getattr(self.args, "st_alpha_max", 0.1) or 0.1), 1e-8)
-                alpha_sat = alpha_ts.reshape(-1).abs() / alpha_max
-                if alpha_sat.numel() == 1 and target_delta.shape[0] > 1:
-                    alpha_sat = alpha_sat.expand(target_delta.shape[0])
-                elif alpha_sat.numel() != target_delta.shape[0]:
-                    alpha_sat = alpha_sat[:1].expand(target_delta.shape[0])
-                saturation = alpha_sat.clamp_min(0.0)
-
-                reliability_for_health = reliability.reshape(-1) if reliability is not None else target_norm_h.new_ones(target_delta.shape[0])
-                max_delta_ratio = max(float(getattr(self.args, "st_internal_delta_ratio_max", 0.65)), 1e-8)
-                max_highfreq_leak = max(float(getattr(self.args, "st_internal_highfreq_leak_max", 1.25)), 1e-8)
-                saturation_ratio = max(float(getattr(self.args, "st_internal_saturation_ratio", 0.90)), 1e-8)
-                delta_penalty = F.relu(delta_ratio - max_delta_ratio) / max_delta_ratio
-                highfreq_penalty = F.relu(highfreq_leak - max_highfreq_leak) / max_highfreq_leak
-                saturation_penalty = F.relu(saturation - saturation_ratio) / saturation_ratio
-                internal_health = (
-                    reliability_for_health * alignment_score
-                ) / (1.0 + delta_penalty + highfreq_penalty + saturation_penalty)
-                with torch.no_grad():
-                    health_base_ts = torch.nan_to_num(base_ts_hat.detach())
-                    health_final_ts = torch.nan_to_num(base_ts_hat.detach() + effective_delta_ts.detach())
-                    health_real_ts = real_ts_for_st.to(device=health_base_ts.device, dtype=health_base_ts.dtype)
-                    internal_base_ts_mse = F.mse_loss(health_base_ts, health_real_ts)
-                    internal_final_ts_mse = F.mse_loss(health_final_ts, health_real_ts)
-                    internal_final_base_mse_ratio = internal_final_ts_mse / internal_base_ts_mse.clamp_min(1e-8)
-            else:
-                alignment = None
-                delta_ratio = None
-                highfreq_leak = None
-                saturation = None
-                internal_health = None
-                internal_base_ts_mse = None
-                internal_final_ts_mse = None
-                internal_final_base_mse_ratio = None
             residual_pred_for_loss = effective_delta_ts
             target_for_residual_loss = target_delta
             huber_beta = max(float(getattr(self.args, "st_residual_huber_beta", 0.05)), 1e-6)
@@ -928,17 +874,6 @@ class ImagenTime(nn.Module):
                 to_log['st/reliability_highfreq_ratio'] = torch.nan_to_num(
                     reliability_info["highfreq_ratio"]
                 ).detach().mean().item()
-            if use_internal_health:
-                to_log['st/internal_health'] = torch.nan_to_num(internal_health).detach().mean().item()
-                to_log['st/internal_alignment'] = torch.nan_to_num(alignment).detach().mean().item()
-                to_log['st/internal_delta_ratio'] = torch.nan_to_num(delta_ratio).detach().mean().item()
-                to_log['st/internal_highfreq_leak'] = torch.nan_to_num(highfreq_leak).detach().mean().item()
-                to_log['st/internal_saturation'] = torch.nan_to_num(saturation).detach().mean().item()
-                to_log['st/base_ts_mse'] = torch.nan_to_num(internal_base_ts_mse).detach().item()
-                to_log['st/final_ts_mse'] = torch.nan_to_num(internal_final_ts_mse).detach().item()
-                to_log['st/final_base_mse_ratio'] = torch.nan_to_num(
-                    internal_final_base_mse_ratio
-                ).detach().item()
             trend_delta = st_state.get("trend_delta_ts")
             if trend_delta is not None:
                 to_log['st/trend_delta_norm'] = torch.nan_to_num(trend_delta).detach().square().mean().sqrt().item()

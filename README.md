@@ -89,21 +89,21 @@ python run_unconditional.py --config ./configs/unconditional/<desired_dataset>.y
 Run ST-DS ImagenTime with the 500-epoch F3 preset:
 
 ```bash
-python run_unconditional.py --config ./configs/unconditional/<desired_dataset>.yaml --train_budget f3_500
+python run_unconditional.py --config ./configs/unconditional/<desired_dataset>.yaml --train_budget f3
 ```
 
 Resume an interrupted unconditional run:
 
 ```bash
-python run_unconditional.py --config ./configs/unconditional/<desired_dataset>.yaml --train_budget f3_500 --resume true
+python run_unconditional.py --config ./configs/unconditional/<desired_dataset>.yaml --train_budget f3 --resume true
 ```
 
 Baseline and ablation examples:
 
 ```bash
-python run_unconditional.py --config ./configs/unconditional/<desired_dataset>.yaml --train_budget f3_500 --use_st_adapter false --use_ds_train false
-python run_unconditional.py --config ./configs/unconditional/<desired_dataset>.yaml --train_budget f3_500 --use_st_adapter true --use_ds_train false
-python run_unconditional.py --config ./configs/unconditional/<desired_dataset>.yaml --train_budget f3_500 --use_st_adapter false --use_ds_train true
+python run_unconditional.py --config ./configs/unconditional/<desired_dataset>.yaml --train_budget f3 --use_st_adapter false --use_ds_train false
+python run_unconditional.py --config ./configs/unconditional/<desired_dataset>.yaml --train_budget f3 --use_st_adapter true --use_ds_train false
+python run_unconditional.py --config ./configs/unconditional/<desired_dataset>.yaml --train_budget f3 --use_st_adapter false --use_ds_train true
 ```
 
 ### Conditional Training and Evaluation
@@ -129,13 +129,13 @@ python run_visualization.py --config ./configs/unconditional/<desired_dataset>.y
 Example:
 
 ```bash
-python run_visualization.py --config ./configs/unconditional/energy.yaml --train_budget f3_500 --run_id 20260531-000001
+python run_visualization.py --config ./configs/unconditional/energy.yaml --train_budget f3 --run_id 20260531-000001
 ```
 
 If you intentionally evaluate an older checkpoint whose saved model keys differ from the current code, allow partial loading:
 
 ```bash
-python run_visualization.py --config ./configs/unconditional/energy.yaml --train_budget f3_500 --run_id 20260531-000001 --allow_partial_resume true
+python run_visualization.py --config ./configs/unconditional/energy.yaml --train_budget f3 --run_id 20260531-000001 --allow_partial_resume true
 ```
 
 ## BibTeX
@@ -242,21 +242,21 @@ python run_unconditional.py --config ./configs/unconditional/<数据集>.yaml
 使用 ST-DS ImagenTime 的 500 轮 F3 方案：
 
 ```bash
-python run_unconditional.py --config ./configs/unconditional/<数据集>.yaml --train_budget f3_500
+python run_unconditional.py --config ./configs/unconditional/<数据集>.yaml --train_budget f3
 ```
 
 恢复中断的无条件生成训练：
 
 ```bash
-python run_unconditional.py --config ./configs/unconditional/<数据集>.yaml --train_budget f3_500 --resume true
+python run_unconditional.py --config ./configs/unconditional/<数据集>.yaml --train_budget f3 --resume true
 ```
 
 baseline 和消融实验示例：
 
 ```bash
-python run_unconditional.py --config ./configs/unconditional/<数据集>.yaml --train_budget f3_500 --use_st_adapter false --use_ds_train false
-python run_unconditional.py --config ./configs/unconditional/<数据集>.yaml --train_budget f3_500 --use_st_adapter true --use_ds_train false
-python run_unconditional.py --config ./configs/unconditional/<数据集>.yaml --train_budget f3_500 --use_st_adapter false --use_ds_train true
+python run_unconditional.py --config ./configs/unconditional/<数据集>.yaml --train_budget f3 --use_st_adapter false --use_ds_train false
+python run_unconditional.py --config ./configs/unconditional/<数据集>.yaml --train_budget f3 --use_st_adapter true --use_ds_train false
+python run_unconditional.py --config ./configs/unconditional/<数据集>.yaml --train_budget f3 --use_st_adapter false --use_ds_train true
 ```
 
 ### 条件生成训练与评估
@@ -282,13 +282,13 @@ python run_visualization.py --config ./configs/unconditional/<数据集>.yaml --
 示例：
 
 ```bash
-python run_visualization.py --config ./configs/unconditional/energy.yaml --train_budget f3_500 --run_id 20260531-000001
+python run_visualization.py --config ./configs/unconditional/energy.yaml --train_budget f3 --run_id 20260531-000001
 ```
 
 如果补评较早的 checkpoint，且保存的模型参数键和当前代码不完全一致，可以显式允许部分加载：
 
 ```bash
-python run_visualization.py --config ./configs/unconditional/energy.yaml --train_budget f3_500 --run_id 20260531-000001 --allow_partial_resume true
+python run_visualization.py --config ./configs/unconditional/energy.yaml --train_budget f3 --run_id 20260531-000001 --allow_partial_resume true
 ```
 
 ## 引用

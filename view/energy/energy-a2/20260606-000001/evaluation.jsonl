@@ -1,0 +1,1 @@
+{"timestamp": "2026-06-06T21:12:16", "dataset": "energy", "epoch": 50, "disc_mean": 0.1943, "disc_std": 0.0324, "pred_mean": 0.2511, "pred_std": 0.0001, "cross_corr_mean": 0.7635, "context_fid_mean": 0.0519, "eval_command": "python run_unconditional.py --config ./configs/unconditional/energy.yaml --train_budget a2"}

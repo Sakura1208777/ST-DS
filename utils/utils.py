@@ -220,23 +220,6 @@ def save_checkpoint(ckpt_dir, state, epoch, ema_model=None, optimizer=None, best
                      'best_score_metric', 'best_score_epoch', 'best_checkpoint'):
         if meta_key in state:
             saved_state[meta_key] = state[meta_key]
-    for f3_key in ('st_frozen', 'st_degrade_count', 'st_best_disc', 'st_best_disc_std', 'st_best_epoch',
-                   'st_best_checkpoint', 'st_frozen_epoch', 'st_post_freeze_degrade',
-                   'st_health_ema_value', 'st_health_reliability_ema', 'st_health_alignment_ema',
-                   'st_health_delta_ratio_ema', 'st_health_highfreq_leak_ema',
-                   'st_health_saturation_ema', 'st_health_base_ts_mse_ema',
-                   'st_health_final_ts_mse_ema', 'st_health_final_base_mse_ratio_ema',
-                   'st_health_effective_delta_norm_ema', 'st_health_best', 'st_health_best_epoch',
-                   'st_external_best_delta_ratio_ema', 'st_external_best_highfreq_leak_ema',
-                   'st_external_best_final_base_mse_ratio_ema', 'st_external_best_epoch',
-                   'st_external_best_delta_growth_ratio', 'st_external_best_highfreq_growth_ratio',
-                   'st_external_best_drift_active', 'st_internal_external_nonimprove_count',
-                   'st_internal_external_metric', 'st_internal_external_score',
-                   'st_internal_external_best_score',
-                   'st_health_best_checkpoint', 'st_health_degrade_count',
-                   'st_health_degrade_reason', 'st_freeze_reason'):
-        if f3_key in state:
-            saved_state[f3_key] = state[f3_key]
     if ema_model is not None:
         saved_state['ema_model'] = ema_model.state_dict()
     optimizer = optimizer if optimizer is not None else state.get('optimizer', None)
@@ -295,19 +278,6 @@ def restore_checkpoint(ckpt_dir, state, device='cuda:0', ema_model=None, optimiz
                          'best_score_metric', 'best_score_epoch', 'best_checkpoint'):
             if meta_key in loaded_state:
                 state[meta_key] = loaded_state[meta_key]
-        for f3_key in ('st_frozen', 'st_degrade_count', 'st_best_disc', 'st_best_disc_std', 'st_best_epoch',
-                       'st_best_checkpoint', 'st_frozen_epoch', 'st_post_freeze_degrade',
-                       'st_health_ema_value', 'st_health_reliability_ema', 'st_health_alignment_ema',
-                       'st_health_delta_ratio_ema', 'st_health_highfreq_leak_ema',
-                       'st_health_saturation_ema', 'st_health_base_ts_mse_ema',
-                       'st_health_final_ts_mse_ema', 'st_health_final_base_mse_ratio_ema',
-                       'st_health_effective_delta_norm_ema', 'st_health_best', 'st_health_best_epoch',
-                       'st_external_best_delta_ratio_ema', 'st_external_best_highfreq_leak_ema',
-                       'st_external_best_final_base_mse_ratio_ema', 'st_external_best_epoch',
-                       'st_health_best_checkpoint', 'st_health_degrade_count',
-                       'st_health_degrade_reason', 'st_freeze_reason'):
-            if f3_key in loaded_state:
-                state[f3_key] = loaded_state[f3_key]
         state['_restored'] = True
         logging.info(f'Successfully loaded previous state from {ckpt_dir}')
         return state

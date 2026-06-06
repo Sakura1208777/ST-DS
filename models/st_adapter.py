@@ -388,7 +388,6 @@ class STEDMPrecondWrapper(nn.Module):
         self.st_warmup_epochs = max(int(getattr(args, "st_warmup_epochs", 200)), 0)
         self.total_epochs = max(int(getattr(args, "epochs", 0) or 0), 0)
         self.st_input_noise = float(getattr(args, "st_input_noise", 0.0) or 0.0)
-        self.freeze_st_loss = False
         self.use_late_decay = _bool_arg(args, "use_late_decay", False)
         self.late_decay_st_strength = _bool_arg(args, "late_decay_st_strength", False)
         self.late_decay_start_epoch = max(int(getattr(args, "late_decay_start_epoch", 0) or 0), 0)

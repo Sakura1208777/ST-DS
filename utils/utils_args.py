@@ -87,27 +87,6 @@ def _add_st_ds_args(parser):
     parser.add_argument('--st_var_relation_no_self', type=_str2bool, default=None)
     parser.add_argument('--st_dropout', type=float, default=None)
     parser.add_argument('--st_input_noise', type=float, default=None)
-    parser.add_argument('--st_freeze', type=_str2bool, default=None)
-    parser.add_argument('--st_freeze_warmup', type=int, default=None)
-    parser.add_argument('--st_freeze_patience', type=int, default=None)
-    parser.add_argument('--st_freeze_threshold', type=float, default=None)
-    parser.add_argument('--st_freeze_hard_threshold', type=float, default=None)
-    parser.add_argument('--st_freeze_pct_threshold', type=float, default=None)
-    parser.add_argument('--st_freeze_min_abs', type=float, default=None)
-    parser.add_argument('--st_freeze_hard_pct_threshold', type=float, default=None)
-    parser.add_argument('--st_freeze_hard_min_abs', type=float, default=None)
-    parser.add_argument('--st_freeze_std_threshold', type=float, default=None)
-    parser.add_argument('--st_freeze_std_ratio', type=float, default=None)
-    parser.add_argument('--st_freeze_std_min_abs', type=float, default=None)
-    parser.add_argument('--st_freeze_lr_ratio', type=float, default=None)
-    parser.add_argument('--st_freeze_watch', type=_str2bool, default=None)
-    parser.add_argument('--st_freeze_watch_interval', type=int, default=None)
-    parser.add_argument('--st_freeze_watch_patience', type=int, default=None)
-    parser.add_argument('--st_post_freeze_patience', type=int, default=None)
-    parser.add_argument('--st_post_freeze_threshold', type=float, default=None)
-    parser.add_argument('--st_post_freeze_hard_threshold', type=float, default=None)
-    parser.add_argument('--st_post_freeze_std_threshold', type=float, default=None)
-    parser.add_argument('--st_post_freeze_std_ratio', type=float, default=None)
     parser.add_argument('--use_late_decay', type=_str2bool, default=None)
     parser.add_argument('--late_decay_start_ratio', type=float, default=None)
     parser.add_argument('--late_decay_start_epoch', type=int, default=None)
@@ -140,39 +119,6 @@ def _add_st_ds_args(parser):
     parser.add_argument('--residual_reliability_acf_max_lag', type=int, default=None)
     parser.add_argument('--reliability_delta_reg_boost', type=float, default=None)
     parser.add_argument('--reliability_effective_boost', type=float, default=None)
-    parser.add_argument('--st_internal_health', type=_str2bool, default=None)
-    parser.add_argument('--st_internal_health_kernel', type=int, default=None)
-    parser.add_argument('--st_internal_freeze', type=_str2bool, default=None)
-    parser.add_argument('--st_internal_monitor_warmup_ratio', type=float, default=None)
-    parser.add_argument('--st_internal_hard_freeze_warmup_ratio', type=float, default=None)
-    parser.add_argument('--st_internal_freeze_warmup_ratio', type=float, default=None)
-    parser.add_argument('--st_internal_health_ema', type=float, default=None)
-    parser.add_argument('--st_internal_freeze_patience', type=int, default=None)
-    parser.add_argument('--st_internal_health_drop', type=float, default=None)
-    parser.add_argument('--st_internal_legacy_health_trigger', type=_str2bool, default=None)
-    parser.add_argument('--st_internal_reliability_floor', type=float, default=None)
-    parser.add_argument('--st_internal_alignment_floor', type=float, default=None)
-    parser.add_argument('--st_internal_delta_ratio_max', type=float, default=None)
-    parser.add_argument('--st_internal_highfreq_leak_max', type=float, default=None)
-    parser.add_argument('--st_internal_best_delta_growth', type=float, default=None)
-    parser.add_argument('--st_internal_best_highfreq_growth', type=float, default=None)
-    parser.add_argument('--st_internal_cancel_on_external_improve', type=_str2bool, default=None)
-    parser.add_argument('--st_internal_external_confirm_evals', type=int, default=None)
-    parser.add_argument('--st_internal_hard_external_confirm_evals', type=int, default=None)
-    parser.add_argument('--st_internal_external_require_mature_best', type=_str2bool, default=None)
-    parser.add_argument('--st_internal_external_best_min_improve_pct', type=float, default=None)
-    parser.add_argument('--st_internal_external_best_min_improve_abs', type=float, default=None)
-    parser.add_argument('--st_internal_external_require_degrade', type=_str2bool, default=None)
-    parser.add_argument('--st_internal_external_degrade_pct', type=float, default=None)
-    parser.add_argument('--st_internal_external_degrade_abs', type=float, default=None)
-    parser.add_argument('--st_internal_structural_soft_ratio', type=float, default=None)
-    parser.add_argument('--st_internal_structural_hard_ratio', type=float, default=None)
-    parser.add_argument('--st_internal_saturation_ratio', type=float, default=None)
-    parser.add_argument('--st_internal_final_mse_ratio_max', type=float, default=None)
-    parser.add_argument('--st_internal_final_mse_hard_ratio', type=float, default=None)
-    parser.add_argument('--st_internal_final_mse_min_abs', type=float, default=None)
-    parser.add_argument('--st_internal_delta_ratio_min', type=float, default=None)
-    parser.add_argument('--st_internal_freeze_lr_ratio', type=float, default=None)
     parser.add_argument('--use_pred_structure_loss', type=_str2bool, default=None)
     parser.add_argument('--pred_structure_max_lag', type=int, default=None)
     parser.add_argument('--pred_structure_max_channels', type=int, default=None)
@@ -260,11 +206,10 @@ def _add_st_ds_args(parser):
 _TRAIN_BUDGET_PRESETS = {
     # === [A2] a2 ===
     # Method: structured residual target that blends raw residual with trend/season-smoothed residual.
-    # Isolation: uses use_structured_st_target only; does not depend on F3 freeze or A5 disentangled loss.
+    # Isolation: uses use_structured_st_target only.
     "a2": {
-        "epochs": 1000,
-        "logging_iter": 100,
-        "st_freeze": False,
+        "epochs": 500,
+        "logging_iter": 50,
         "use_late_decay": False,
         "use_structured_st_target": True,
         "structured_target_kernels": [1, 2, 4, 6, 12],
@@ -350,31 +295,12 @@ _TRAIN_BUDGET_PRESETS = {
         "lambda_period_amp": 0.005,
         "lambda_period_phase": 0.0015,
     },
-    # === [F3-500] f3_500 ===
-    # Method: 500-epoch dynamic ST freeze driven by disc_mean/disc_std degradation.
-    # Isolation: freeze-only strategy; structured/disentangled targets are disabled.
-    "f3_500": {
+    # === [F3] f3 ===
+    # Method: 500-epoch ST/DS training preset.
+    # Isolation: keeps the original F3 training signals only.
+    "f3": {
         "epochs": 500,
         "logging_iter": 50,
-        "st_freeze": True,
-        "st_freeze_warmup": 200,
-        "st_freeze_patience": 2,
-        "st_freeze_threshold": 0.005,
-        "st_freeze_hard_threshold": 0.016,
-        "st_freeze_pct_threshold": 0.20,
-        "st_freeze_min_abs": 0.002,
-        "st_freeze_hard_pct_threshold": 0.40,
-        "st_freeze_hard_min_abs": 0.006,
-        "st_freeze_std_threshold": 0.004,
-        "st_freeze_std_ratio": 1.75,
-        "st_freeze_std_min_abs": 0.004,
-        "st_freeze_lr_ratio": 0.25,
-        "st_freeze_watch": False,
-        "st_post_freeze_patience": 999,
-        "st_post_freeze_threshold": 999.0,
-        "st_post_freeze_hard_threshold": 999.0,
-        "st_post_freeze_std_threshold": 999.0,
-        "st_post_freeze_std_ratio": 999.0,
         "st_alpha": 0.06,
         "st_alpha_max": 0.10,
         "st_warmup_epochs": 100,
@@ -446,265 +372,12 @@ _TRAIN_BUDGET_PRESETS = {
     },
     }
 
-# === [PRO3] pro3 ===
-# Method: internal-F3 freeze; train like f3_500, detect ST damage internally, then restore/freeze from external best.
-# Isolation: independent pro preset; freeze trigger is internal, rollback follows the normal best-checkpoint metric.
-_TRAIN_BUDGET_PRESETS["pro3"] = {
-    "epochs": 500,
-    "logging_iter": 50,
-    "st_freeze": False,
-    "st_internal_health": True,
-    "st_internal_freeze": True,
-    "st_internal_monitor_warmup_ratio": 0.20,
-    "st_internal_hard_freeze_warmup_ratio": 0.25,
-    "st_internal_freeze_warmup_ratio": 0.35,
-    "st_internal_health_ema": 0.90,
-    "st_internal_freeze_patience": 2,
-    "st_internal_health_drop": 0.15,
-    "st_internal_legacy_health_trigger": True,
-    "st_internal_reliability_floor": 0.0,
-    "st_internal_alignment_floor": 0.10,
-    "st_internal_delta_ratio_max": 0.75,
-    "st_internal_highfreq_leak_max": 1.50,
-    "st_internal_best_delta_growth": 0.0,
-    "st_internal_best_highfreq_growth": 0.0,
-    "st_internal_cancel_on_external_improve": False,
-    "st_internal_external_confirm_evals": 1,
-    "st_internal_hard_external_confirm_evals": 1,
-    "st_internal_structural_soft_ratio": 1.0,
-    "st_internal_structural_hard_ratio": 1.15,
-    "st_internal_saturation_ratio": 0.92,
-    "st_internal_final_mse_ratio_max": 1.02,
-    "st_internal_final_mse_hard_ratio": 1.08,
-    "st_internal_final_mse_min_abs": 0.0,
-    "st_internal_delta_ratio_min": 0.03,
-    "st_internal_health_kernel": 5,
-    "st_internal_freeze_lr_ratio": 0.22,
-    "use_late_decay": False,
-    "use_structured_st_target": False,
-    "use_residual_reliability": False,
-    "residual_reliability_min": 0.20,
-    "residual_reliability_power": 1.0,
-    "residual_reliability_kernels": [3, 5, 7, 11],
-    "residual_reliability_freq_topk": 3,
-    "residual_reliability_acf_max_lag": 12,
-    "reliability_delta_reg_boost": 1.0,
-    "reliability_effective_boost": 1.0,
-    "st_alpha": 0.06,
-    "st_alpha_max": 0.10,
-    "st_warmup_epochs": 100,
-    "st_residual_calib": True,
-    "st_residual_warmup_epochs": 100,
-    "st_residual_target_scale": 0.40,
-    "st_feature_fusion": True,
-    "st_feature_channels": 64,
-    "st_feature_scale_max": 0.025,
-    "st_feature_init_scale": 0.004,
-    "st_feature_zero_init": True,
-    "st_feature_sigma_gate": True,
-    "st_feature_sigma_mid": -1.0,
-    "st_feature_sigma_scale": 0.75,
-    "st_feature_warmup_epochs": 250,
-    "st_feature_norm_max": 0.015,
-    "st_feature_input_clip": 3.0,
-    "lambda_st_residual": 0.05,
-    "lambda_st_delta_reg": 0.001,
-    "lambda_st_raw_delta_reg": 0.00015,
-    "lambda_st_effective": 0.045,
-    "lambda_st_effective_ratio": 0.018,
-    "lambda_st_relation_reg": 0.001,
-    "st_effective_align": False,
-    "st_effective_max_ratio": 0.30,
-    "st_lma_affine": True,
-    "st_period_branch": True,
-    "st_period_candidates": [2, 3, 4, 6, 8, 12],
-    "st_period_min": 2,
-    "st_period_max": 12,
-    "st_period_temperature": 0.40,
-    "st_period_max_scale": 0.08,
-    "st_period_input_condition": False,
-    "st_period_input_channels": 64,
-    "st_period_input_alpha": 0.020,
-    "st_period_input_alpha_max": 0.040,
-    "st_period_input_alpha_learnable": True,
-    "st_period_input_warmup_epochs": 120,
-    "st_period_input_max_scale": 0.14,
-    "st_period_input_init_scale": 0.02,
-    "st_detach_base_for_style": False,
-    "st_branch_style_calib": False,
-    "st_var_relation": True,
-    "st_var_relation_rank": 8,
-    "st_var_relation_beta": 0.08,
-    "st_var_relation_init_beta": 0.0,
-    "lambda_ts": 0.08,
-    "ds_warmup_epochs": 120,
-    "lambda_ds_trend": 0.04,
-    "lambda_ds_season": 0.04,
-    "lambda_ds_freq": 0.012,
-    "lambda_ds_corr": 0.004,
-    "lambda_ds_dist": 0.004,
-    "use_final_dist_train": True,
-    "lambda_final_mean": 0.004,
-    "lambda_final_std": 0.008,
-    "lambda_final_diff_std": 0.016,
-    "lambda_final_quantile": 0.010,
-    "lambda_final_highfreq": 0.005,
-    "use_period_train": False,
-    "period_lma_kernels": [1, 2, 4, 6, 12],
-    "period_max_lag": 12,
-    "period_warmup_epochs": 120,
-    "period_late_start_ratio": 0.72,
-    "period_late_min_scale": 0.50,
-    "lambda_period_autocorr": 0.008,
-    "lambda_period_amp": 0.005,
-    "lambda_period_phase": 0.0015,
-}
-
-
 # === [PRO4] pro4 ===
 # Method: residual reliability training plus predictive lag/cross-lag structure loss.
-# Isolation: training-loss-only strategy; no F3/pro3 freeze and no dataset-specific eval metric dependency.
+# Isolation: training-loss-only strategy with no dataset-specific eval metric dependency.
 _TRAIN_BUDGET_PRESETS["pro4"] = {
     "epochs": 500,
     "logging_iter": 50,
-    "st_freeze": False,
-    "st_internal_health": False,
-    "st_internal_freeze": False,
-    "use_late_decay": False,
-    "use_structured_st_target": False,
-    "use_residual_reliability": True,
-    "residual_reliability_min": 0.20,
-    "residual_reliability_power": 1.0,
-    "residual_reliability_kernels": [3, 5, 7, 11],
-    "residual_reliability_freq_topk": 3,
-    "residual_reliability_acf_max_lag": 12,
-    "reliability_delta_reg_boost": 2.0,
-    "reliability_effective_boost": 2.0,
-    "use_pred_structure_loss": True,
-    "pred_structure_max_lag": 6,
-    "pred_structure_max_channels": 64,
-    "pred_structure_include_cross": True,
-    "pred_structure_no_self": True,
-    "pred_structure_adaptive": True,
-    "pred_structure_warmup_ratio": 0.25,
-    "pred_structure_warmup_window": 0.05,
-    "pred_structure_strength_floor": 0.04,
-    "pred_structure_strength_scale": 0.20,
-    "pred_structure_confidence_min": 0.0,
-    "pred_structure_confidence_power": 1.0,
-    "pred_structure_huber_beta": 0.03,
-    "lambda_pred_structure": 0.003,
-    "st_alpha": 0.06,
-    "st_alpha_max": 0.10,
-    "st_warmup_epochs": 100,
-    "st_residual_calib": True,
-    "st_residual_warmup_epochs": 100,
-    "st_residual_target_scale": 0.40,
-    "st_feature_fusion": True,
-    "st_feature_channels": 64,
-    "st_feature_scale_max": 0.025,
-    "st_feature_init_scale": 0.004,
-    "st_feature_zero_init": True,
-    "st_feature_sigma_gate": True,
-    "st_feature_sigma_mid": -1.0,
-    "st_feature_sigma_scale": 0.75,
-    "st_feature_warmup_epochs": 250,
-    "st_feature_norm_max": 0.015,
-    "st_feature_input_clip": 3.0,
-    "lambda_st_residual": 0.05,
-    "lambda_st_delta_reg": 0.001,
-    "lambda_st_raw_delta_reg": 0.00015,
-    "lambda_st_effective": 0.045,
-    "lambda_st_effective_ratio": 0.018,
-    "lambda_st_relation_reg": 0.001,
-    "st_effective_align": False,
-    "st_effective_max_ratio": 0.30,
-    "st_lma_affine": True,
-    "st_period_branch": True,
-    "st_period_candidates": [2, 3, 4, 6, 8, 12],
-    "st_period_min": 2,
-    "st_period_max": 12,
-    "st_period_temperature": 0.40,
-    "st_period_max_scale": 0.08,
-    "st_period_input_condition": False,
-    "st_period_input_channels": 64,
-    "st_period_input_alpha": 0.020,
-    "st_period_input_alpha_max": 0.040,
-    "st_period_input_alpha_learnable": True,
-    "st_period_input_warmup_epochs": 120,
-    "st_period_input_max_scale": 0.14,
-    "st_period_input_init_scale": 0.02,
-    "st_detach_base_for_style": False,
-    "st_branch_style_calib": False,
-    "st_var_relation": True,
-    "st_var_relation_rank": 8,
-    "st_var_relation_beta": 0.08,
-    "st_var_relation_init_beta": 0.0,
-    "lambda_ts": 0.08,
-    "ds_warmup_epochs": 120,
-    "lambda_ds_trend": 0.04,
-    "lambda_ds_season": 0.04,
-    "lambda_ds_freq": 0.012,
-    "lambda_ds_corr": 0.004,
-    "lambda_ds_dist": 0.004,
-    "use_final_dist_train": True,
-    "lambda_final_mean": 0.004,
-    "lambda_final_std": 0.008,
-    "lambda_final_diff_std": 0.016,
-    "lambda_final_quantile": 0.010,
-    "lambda_final_highfreq": 0.005,
-    "use_period_train": False,
-    "period_lma_kernels": [1, 2, 4, 6, 12],
-    "period_max_lag": 12,
-    "period_warmup_epochs": 120,
-    "period_late_start_ratio": 0.72,
-    "period_late_min_scale": 0.50,
-    "lambda_period_autocorr": 0.008,
-    "lambda_period_amp": 0.005,
-    "lambda_period_phase": 0.0015,
-}
-
-
-# === [PRO6] pro6 ===
-# Method: pro4 residual-reliability/predictive-structure training plus pro3 internal freeze rollback.
-# Isolation: standalone full preset; does not inherit from pro3 or pro4 at runtime.
-_TRAIN_BUDGET_PRESETS["pro6"] = {
-    "epochs": 500,
-    "logging_iter": 50,
-    "st_freeze": False,
-    "st_internal_health": True,
-    "st_internal_freeze": True,
-    "st_internal_monitor_warmup_ratio": 0.20,
-    "st_internal_hard_freeze_warmup_ratio": 0.25,
-    "st_internal_freeze_warmup_ratio": 0.35,
-    "st_internal_health_ema": 0.90,
-    "st_internal_freeze_patience": 2,
-    "st_internal_health_drop": 0.15,
-    "st_internal_legacy_health_trigger": False,
-    "st_internal_reliability_floor": 0.0,
-    "st_internal_alignment_floor": 0.10,
-    "st_internal_delta_ratio_max": 0.75,
-    "st_internal_highfreq_leak_max": 1.50,
-    "st_internal_best_delta_growth": 0.12,
-    "st_internal_best_highfreq_growth": 0.30,
-    "st_internal_cancel_on_external_improve": True,
-    "st_internal_external_confirm_evals": 1,
-    "st_internal_hard_external_confirm_evals": 1,
-    "st_internal_external_require_mature_best": True,
-    "st_internal_external_best_min_improve_pct": 0.05,
-    "st_internal_external_best_min_improve_abs": 1e-4,
-    "st_internal_external_require_degrade": True,
-    "st_internal_external_degrade_pct": 0.20,
-    "st_internal_external_degrade_abs": 1e-4,
-    "st_internal_structural_soft_ratio": 1.0,
-    "st_internal_structural_hard_ratio": 1.15,
-    "st_internal_saturation_ratio": 0.92,
-    "st_internal_final_mse_ratio_max": 1.02,
-    "st_internal_final_mse_hard_ratio": 1.08,
-    "st_internal_final_mse_min_abs": 0.0,
-    "st_internal_delta_ratio_min": 0.03,
-    "st_internal_health_kernel": 5,
-    "st_internal_freeze_lr_ratio": 0.22,
     "use_late_decay": False,
     "use_structured_st_target": False,
     "use_residual_reliability": True,
@@ -806,24 +479,24 @@ def _resolve_train_budget(parsed_args):
     if budget in (None, "", "none", "None"):
         epochs = int(getattr(parsed_args, "epochs", 0) or 0)
         if epochs and epochs <= 650:
-            preferred_order = ("f3_500",)
+            preferred_order = ("f3",)
         else:
-            preferred_order = ("f3_500",)
+            preferred_order = ("f3",)
         for preferred in preferred_order:
             if preferred in available:
                 return preferred
-        return available[0] if available else "f3_500"
+        return available[0] if available else "f3"
     if budget != "auto":
         return budget
     epochs = int(getattr(parsed_args, "epochs", 0) or 0)
     if epochs and epochs <= 650:
-        for preferred in ("f3_500",):
+        for preferred in ("f3",):
             if preferred in available:
                 return preferred
-    for preferred in ("f3_500",):
+    for preferred in ("f3",):
         if preferred in available:
             return preferred
-    return available[0] if available else "f3_500"
+    return available[0] if available else "f3"
 
 
 def _apply_train_budget_preset(parsed_args):
@@ -849,19 +522,6 @@ def _apply_st_ds_defaults(parsed_args):
         "st_freq_tier": 1,
         "st_dropout": 0.0,
         "st_input_noise": 0.0,
-        "st_freeze": False,
-        "st_freeze_warmup": 200,
-        "st_freeze_patience": 2,
-        "st_freeze_threshold": 0.005,
-        "st_freeze_hard_threshold": 0.0,
-        "st_freeze_std_threshold": 0.0,
-        "st_freeze_std_ratio": 0.0,
-        "st_freeze_lr_ratio": 0.3,
-        "st_post_freeze_patience": 2,
-        "st_post_freeze_threshold": 0.01,
-        "st_post_freeze_hard_threshold": 0.0,
-        "st_post_freeze_std_threshold": 0.0,
-        "st_post_freeze_std_ratio": 0.0,
         "use_late_decay": False,
         "late_decay_start_ratio": 0.70,
         "late_decay_start_epoch": 0,
@@ -894,39 +554,6 @@ def _apply_st_ds_defaults(parsed_args):
         "residual_reliability_acf_max_lag": 12,
         "reliability_delta_reg_boost": 1.0,
         "reliability_effective_boost": 1.0,
-        "st_internal_health": False,
-        "st_internal_health_kernel": 5,
-        "st_internal_freeze": False,
-        "st_internal_monitor_warmup_ratio": 0.25,
-        "st_internal_hard_freeze_warmup_ratio": 0.25,
-        "st_internal_freeze_warmup_ratio": 0.25,
-        "st_internal_health_ema": 0.95,
-        "st_internal_freeze_patience": 3,
-        "st_internal_health_drop": 0.20,
-        "st_internal_legacy_health_trigger": True,
-        "st_internal_reliability_floor": 0.30,
-        "st_internal_alignment_floor": 0.05,
-        "st_internal_delta_ratio_max": 0.65,
-        "st_internal_highfreq_leak_max": 1.25,
-        "st_internal_best_delta_growth": 0.0,
-        "st_internal_best_highfreq_growth": 0.0,
-        "st_internal_cancel_on_external_improve": False,
-        "st_internal_external_confirm_evals": 1,
-        "st_internal_hard_external_confirm_evals": 1,
-        "st_internal_external_require_mature_best": False,
-        "st_internal_external_best_min_improve_pct": 0.05,
-        "st_internal_external_best_min_improve_abs": 0.0,
-        "st_internal_external_require_degrade": False,
-        "st_internal_external_degrade_pct": 0.20,
-        "st_internal_external_degrade_abs": 1e-4,
-        "st_internal_structural_soft_ratio": 1.0,
-        "st_internal_structural_hard_ratio": 1.15,
-        "st_internal_saturation_ratio": 0.90,
-        "st_internal_final_mse_ratio_max": 1.05,
-        "st_internal_final_mse_hard_ratio": 1.10,
-        "st_internal_final_mse_min_abs": 0.0,
-        "st_internal_delta_ratio_min": 0.02,
-        "st_internal_freeze_lr_ratio": 0.22,
         "use_pred_structure_loss": False,
         "pred_structure_max_lag": 6,
         "pred_structure_max_channels": 64,
@@ -1109,8 +736,7 @@ def parse_args_uncond():
     parser.add_argument('--run_id', type=str, default=None,
                         help='training run id; leave empty to create a new id for training or use the latest id for evaluation')
     parser.add_argument('--train_budget', type=str,
-                                choices=['a2', 'f3_500',
-                                 'pro3', 'pro4', 'pro6', 'auto'],
+                                choices=['a2', 'f3', 'pro4', 'auto'],
                         default=None,
                         help='generic ST-DS training budget preset')
     parser.add_argument('--log_dir', default='./logs', help='path to save logs')
@@ -1223,8 +849,7 @@ def parse_args_cond():
     parser.add_argument('--run_id', type=str, default=None,
                         help='training run id; leave empty to create a new id for training or use the latest id for evaluation')
     parser.add_argument('--train_budget', type=str,
-                                choices=['a2', 'f3_500',
-                                 'pro3', 'pro4', 'pro6', 'auto'],
+                                choices=['a2', 'f3', 'pro4', 'auto'],
                         default=None,
                         help='generic ST-DS training budget preset')
     parser.add_argument('--log_dir', default='./logs', help='path to save logs')
