@@ -1,4 +1,5 @@
 import os
+import random
 import sys
 import torch
 import numpy as np
@@ -192,7 +193,13 @@ def main(args):
 
 if __name__ == '__main__':
     args = parse_args_uncond()  # parse unconditional generation specific args
-    torch.random.manual_seed(args.seed)
-    np.random.default_rng(args.seed)
+    # Set all RNGs used in this project. np.random.default_rng(args.seed) only
+    # creates a local generator and does not seed np.random.* calls used by the
+    # dataloaders and metrics.
+    random.seed(args.seed)
+    np.random.seed(args.seed)
+    torch.manual_seed(args.seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(args.seed)
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
     main(args)

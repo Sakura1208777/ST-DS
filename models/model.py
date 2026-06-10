@@ -71,9 +71,34 @@ class ImagenTime(nn.Module):
 
         if args.ema:
             self.use_ema = True
-            self.model_ema = LitEma(self.net, decay=0.9999, use_num_upates=True, warmup=args.ema_warmup)
+            ema_d = float(getattr(args, 'ema_decay', 0.9999) or 0.9999)
+            self.model_ema = LitEma(self.net, decay=ema_d, use_num_upates=True, warmup=args.ema_warmup)
         else:
             self.use_ema = False
+
+        ts_channels = args.input_channels if not args.use_stft else args.input_channels // 2
+        self.temporal_transform = None
+        # This block is intentionally opt-in. When it is enabled, it is used only
+        # inside training losses; it is not part of the sampler's generation path.
+        # Keeping it disabled by default prevents a loss-only module from absorbing
+        # supervision without changing the generated samples.
+        if bool(getattr(args, "use_loss_temporal_transform", False)) and int(getattr(args, "seq_len", 24)) > 48:
+            d_model = min(64, max(8, ts_channels * 2))
+            encoder_layer = nn.TransformerEncoderLayer(
+                d_model=d_model, nhead=min(4, max(2, d_model // 16)),
+                dim_feedforward=d_model * 2, dropout=0.0, batch_first=True,
+            )
+            self.temporal_transform = nn.TransformerEncoder(encoder_layer, num_layers=2)
+            self.temporal_proj_in = nn.Linear(ts_channels, d_model)
+            self.temporal_proj_out = nn.Linear(d_model, ts_channels)
+
+    def _apply_temporal_transform(self, ts):
+        if self.temporal_transform is None:
+            return ts
+        B, L, C = ts.shape
+        x = self.temporal_proj_in(ts)
+        x = self.temporal_transform(x)
+        return ts + self.temporal_proj_out(x)
 
     def ts_to_img(self, signal, pad_val=None):
         """
@@ -85,10 +110,22 @@ class ImagenTime(nn.Module):
         # pad_val is used only for delay embedding, as the value to pad the image with
         # when creating the mask, we need to use 1 as padding value
         # if pad_val is given, it is used to overwrite the default value of 0
-        return self.ts_img.ts_to_img(signal, True, pad_val) if pad_val else self.ts_img.ts_to_img(signal)
+        return self.ts_img.ts_to_img(signal, True, pad_val) if pad_val is not None else self.ts_img.ts_to_img(signal)
 
     def img_to_ts(self, img):
         return self.ts_img.img_to_ts(img)
+
+    @staticmethod
+    def _expand_to_batch_3d(value, batch_size, device, dtype):
+        """Return value as shape [B, 1, 1] for safe ST gate/scale broadcasting."""
+        if not torch.is_tensor(value):
+            value = torch.tensor(value, device=device, dtype=dtype)
+        value = value.to(device=device, dtype=dtype).reshape(-1)
+        if value.numel() == 1:
+            value = value.expand(batch_size)
+        elif value.numel() != batch_size:
+            value = value[:1].expand(batch_size)
+        return value.reshape(batch_size, 1, 1)
 
     def _late_decay_scale(self):
         if not bool(getattr(self.args, "use_late_decay", False)):
@@ -132,7 +169,20 @@ class ImagenTime(nn.Module):
         if not valid:
             valid = [1]
         parts = [self._moving_average_ts(x_ts, kernel) for kernel in valid]
-        return torch.stack(parts, dim=0).mean(dim=0)
+        result = torch.stack(parts, dim=0).mean(dim=0)
+        if length > 48 and max(valid) / float(length) < 0.05:
+            win = 48
+            chunks = []
+            for start in range(0, length, win):
+                end = min(start + win, length)
+                chunk = x_ts[:, start:end, :]
+                chunk_parts = [self._moving_average_ts(chunk, min(k, end - start))
+                               for k in valid]
+                chunk_avg = torch.stack(chunk_parts, dim=0).mean(dim=0)
+                chunks.append(chunk_avg)
+            local_result = torch.cat(chunks, dim=1)
+            result = (result + local_result) * 0.5
+        return result
 
     def _structured_confidence(self, real_ts, real_trend, real_season, kernels):
         centered = real_ts - real_ts.mean(dim=1, keepdim=True)
@@ -225,6 +275,8 @@ class ImagenTime(nn.Module):
         season = centered - trend
         highfreq = centered - self._moving_average_ts(centered, min(valid_kernels))
 
+
+
         trend_ratio = trend.square().mean(dim=(1, 2), keepdim=True) / total_energy
         season_ratio = season.square().mean(dim=(1, 2), keepdim=True) / total_energy
         highfreq_ratio = highfreq.square().mean(dim=(1, 2), keepdim=True) / total_energy
@@ -300,6 +352,8 @@ class ImagenTime(nn.Module):
         batch, length, channels = x_ts.shape
         if length <= 1:
             return x_ts.new_zeros(batch, min(max(int(max_channels), 1), channels))
+        if int(max_lag) <= 0:
+            max_lag = max(6, min(length // 8, 24))
         max_lag = min(max(int(max_lag), 1), max(length - 1, 1))
         used_channels = min(max(int(max_channels), 1), channels)
         x_ts = x_ts[:, :, :used_channels]
@@ -324,9 +378,15 @@ class ImagenTime(nn.Module):
         seq_len = int(pred_ts.shape[1])
         max_lag_arg = getattr(self.args, "pred_structure_max_lag", 6)
         max_lag = int(max_lag_arg) if max_lag_arg is not None else 6
-        auto_lag = max_lag <= 0
-        if auto_lag:
+        # --- [MAX1] Sequence-adaptive lag: cover ~25% of time steps, capped at 24 ---
+        if bool(getattr(self.args, "pred_structure_auto_lag", False)):
+            max_lag = max(6, min(seq_len // 4, 24))
+            auto_lag = False
+        elif max_lag <= 0:
             max_lag = max(4, min(seq_len // 6, 24))
+            auto_lag = True
+        else:
+            auto_lag = False
         include_cross = bool(getattr(self.args, "pred_structure_include_cross", True))
         no_self = bool(getattr(self.args, "pred_structure_no_self", True))
         max_channels = int(getattr(self.args, "pred_structure_max_channels", 64) or 64)
@@ -497,7 +557,8 @@ class ImagenTime(nn.Module):
             and x_ts is not None
             and hasattr(self.net, "pop_st_state")
         )
-        use_ts_supervision = use_ds_train or use_st_residual or use_period_train
+        use_final_dist = self.final_dist_loss_fn is not None and x_ts is not None
+        use_ts_supervision = use_ds_train or use_st_residual or use_period_train or use_final_dist
 
         if use_ts_supervision:
             output, weight, sigma = self.forward(x, return_sigma=True)
@@ -530,6 +591,7 @@ class ImagenTime(nn.Module):
             to_log['style scale'] = float(style_scale)
             to_log['late/decay_scale'] = float(late_decay_scale)
             out_ts = self.img_to_ts(output)
+            out_ts = self._apply_temporal_transform(out_ts)
             style_ts = out_ts
             if (
                 bool(getattr(self.args, "st_detach_base_for_style", False))
@@ -544,23 +606,24 @@ class ImagenTime(nn.Module):
                     device=base_ts_for_style.device,
                     dtype=base_ts_for_style.dtype,
                 )
-                gate_for_style = st_state["gate"].to(
-                    device=base_ts_for_style.device,
-                    dtype=base_ts_for_style.dtype,
-                ).reshape(base_ts_for_style.shape[0], 1, 1)
-                alpha_for_style = st_state["alpha"].to(
-                    device=base_ts_for_style.device,
-                    dtype=base_ts_for_style.dtype,
+                gate_for_style = self._expand_to_batch_3d(
+                    st_state["gate"],
+                    base_ts_for_style.shape[0],
+                    base_ts_for_style.device,
+                    base_ts_for_style.dtype,
                 )
-                trust_for_style = st_state.get("trust_gate", base_ts_for_style.new_tensor(1.0)).to(
-                    device=base_ts_for_style.device,
-                    dtype=base_ts_for_style.dtype,
-                ).reshape(-1)
-                if trust_for_style.numel() == 1 and base_ts_for_style.shape[0] > 1:
-                    trust_for_style = trust_for_style.expand(base_ts_for_style.shape[0])
-                elif trust_for_style.numel() != base_ts_for_style.shape[0]:
-                    trust_for_style = trust_for_style[:1].expand(base_ts_for_style.shape[0])
-                trust_for_style = trust_for_style.reshape(base_ts_for_style.shape[0], 1, 1)
+                alpha_for_style = self._expand_to_batch_3d(
+                    st_state["alpha"],
+                    base_ts_for_style.shape[0],
+                    base_ts_for_style.device,
+                    base_ts_for_style.dtype,
+                )
+                trust_for_style = self._expand_to_batch_3d(
+                    st_state.get("trust_gate", base_ts_for_style.new_tensor(1.0)),
+                    base_ts_for_style.shape[0],
+                    base_ts_for_style.device,
+                    base_ts_for_style.dtype,
+                )
                 style_ts = torch.nan_to_num(
                     base_ts_for_style + gate_for_style * alpha_for_style * trust_for_style * delta_ts_for_style
                 )
@@ -610,6 +673,7 @@ class ImagenTime(nn.Module):
         if self.final_dist_loss_fn is not None and x_ts is not None:
             if out_ts is None:
                 out_ts = self.img_to_ts(output)
+                out_ts = self._apply_temporal_transform(out_ts)
             x_ts_for_final = x_ts.to(device=out_ts.device, dtype=out_ts.dtype)
             final_dist_loss, final_dist_logs = self.final_dist_loss_fn(out_ts, x_ts_for_final, sigma)
             loss = loss + output.new_tensor(style_scale) * final_dist_loss
@@ -618,6 +682,7 @@ class ImagenTime(nn.Module):
         if use_period_train:
             if out_ts is None:
                 out_ts = self.img_to_ts(output)
+                out_ts = self._apply_temporal_transform(out_ts)
             period_warmup_epochs = max(
                 int(getattr(self.args, "period_warmup_epochs", getattr(self.args, "ds_warmup_epochs", 200))),
                 0,
@@ -699,9 +764,10 @@ class ImagenTime(nn.Module):
             target_delta = target_delta * target_scale
             use_residual_reliability = bool(getattr(self.args, "use_residual_reliability", False))
             if use_residual_reliability:
-                reliability, reliability_info = self._residual_reliability(full_target_delta)
-                reliability = reliability.to(device=target_delta.device, dtype=target_delta.dtype)
                 reliability_min = min(1.0, max(0.0, float(getattr(self.args, "residual_reliability_min", 0.20))))
+                reliability_result = self._residual_reliability(full_target_delta)
+                reliability = reliability_result[0].to(device=target_delta.device, dtype=target_delta.dtype)
+                reliability_info = reliability_result[1]
                 residual_loss_weight = reliability_min + (1.0 - reliability_min) * reliability
                 delta_reg_boost_max = max(1.0, float(getattr(self.args, "reliability_delta_reg_boost", 1.0)))
                 effective_boost_max = max(1.0, float(getattr(self.args, "reliability_effective_boost", 1.0)))
@@ -712,24 +778,24 @@ class ImagenTime(nn.Module):
                 residual_loss_weight = None
                 delta_reg_weight = None
                 effective_reg_weight = None
-            gate_ts = st_state.get("gate", base_ts_hat.new_tensor(1.0)).to(
-                device=base_ts_hat.device,
-                dtype=base_ts_hat.dtype,
+            gate_ts = self._expand_to_batch_3d(
+                st_state.get("gate", base_ts_hat.new_tensor(1.0)),
+                base_ts_hat.shape[0],
+                base_ts_hat.device,
+                base_ts_hat.dtype,
             )
-            gate_ts = gate_ts.reshape(base_ts_hat.shape[0], 1, 1)
-            alpha_ts = st_state.get("alpha", base_ts_hat.new_tensor(1.0)).to(
-                device=base_ts_hat.device,
-                dtype=base_ts_hat.dtype,
+            alpha_ts = self._expand_to_batch_3d(
+                st_state.get("alpha", base_ts_hat.new_tensor(1.0)),
+                base_ts_hat.shape[0],
+                base_ts_hat.device,
+                base_ts_hat.dtype,
             )
-            trust_ts = st_state.get("trust_gate", base_ts_hat.new_tensor(1.0)).to(
-                device=base_ts_hat.device,
-                dtype=base_ts_hat.dtype,
-            ).reshape(-1)
-            if trust_ts.numel() == 1 and base_ts_hat.shape[0] > 1:
-                trust_ts = trust_ts.expand(base_ts_hat.shape[0])
-            elif trust_ts.numel() != base_ts_hat.shape[0]:
-                trust_ts = trust_ts[:1].expand(base_ts_hat.shape[0])
-            trust_ts = trust_ts.reshape(base_ts_hat.shape[0], 1, 1)
+            trust_ts = self._expand_to_batch_3d(
+                st_state.get("trust_gate", base_ts_hat.new_tensor(1.0)),
+                base_ts_hat.shape[0],
+                base_ts_hat.device,
+                base_ts_hat.dtype,
+            )
             effective_delta_ts = torch.nan_to_num(gate_ts * alpha_ts * trust_ts * delta_ts)
             residual_pred_for_loss = effective_delta_ts
             target_for_residual_loss = target_delta
@@ -756,6 +822,27 @@ class ImagenTime(nn.Module):
                 + lambda_st_delta_reg * st_delta_reg
                 + lambda_st_raw_delta_reg * st_raw_delta_reg
             )
+            # --- [MAX1] Delta smoothness regularization ---
+            if bool(getattr(self.args, "use_delta_smooth_reg", False)):
+                if effective_delta_ts.shape[1] > 1:
+                    delta_diff = effective_delta_ts[:, 1:, :] - effective_delta_ts[:, :-1, :]
+                    delta_smooth_loss = delta_diff.square().mean()
+                else:
+                    delta_smooth_loss = effective_delta_ts.new_tensor(0.0)
+                lambda_delta_smooth = float(getattr(self.args, "lambda_delta_smooth", 0.005))
+                loss = loss + output.new_tensor(st_calib_scale) * (lambda_delta_smooth * delta_smooth_loss)
+                to_log['st/delta_smooth_loss'] = torch.nan_to_num(delta_smooth_loss).detach().item()
+            # --- [MAX1] Delta spectral alignment ---
+            if bool(getattr(self.args, "use_delta_spectral_reg", False)):
+                if effective_delta_ts.shape[1] > 3:
+                    delta_fft = torch.fft.rfft(effective_delta_ts, dim=1)
+                    target_fft = torch.fft.rfft(target_delta, dim=1)
+                    spectral_loss = (delta_fft.abs() - target_fft.abs()).square().mean()
+                else:
+                    spectral_loss = effective_delta_ts.new_tensor(0.0)
+                lambda_delta_spectral = float(getattr(self.args, "lambda_delta_spectral", 0.003))
+                loss = loss + output.new_tensor(st_calib_scale) * (lambda_delta_spectral * spectral_loss)
+                to_log['st/delta_spectral_loss'] = torch.nan_to_num(spectral_loss).detach().item()
             if bool(getattr(self.args, "use_pred_structure_loss", False)):
                 pred_structure_scale = self._predictive_structure_scale()
                 pred_structure_loss = output.new_tensor(0.0)
@@ -771,6 +858,9 @@ class ImagenTime(nn.Module):
                         target_structure_ts,
                     )
                     lambda_pred_structure = float(getattr(self.args, "lambda_pred_structure", 0.003))
+                    seq_len_val = int(target_structure_ts.shape[1])
+                    if seq_len_val > 48:
+                        lambda_pred_structure *= min(1.0, (48.0 / float(seq_len_val)) ** 0.5)
                     loss = loss + output.new_tensor(st_calib_scale * pred_structure_scale) * (
                         lambda_pred_structure * pred_structure_loss
                     )
@@ -818,7 +908,7 @@ class ImagenTime(nn.Module):
             if bool(getattr(self.args, "st_effective_align", False)):
                 if out_ts is None:
                     out_ts = self.img_to_ts(output)
-                base_ts_live = st_state.get("base_ts_hat_live", base_ts_hat).to(device=out_ts.device, dtype=out_ts.dtype)
+                base_ts_live = st_state.get("base_ts_hat_live", base_ts_hat).to(device=out_ts.device, dtype=out_ts.dtype).detach()
                 effective_delta = torch.nan_to_num(out_ts - base_ts_live)
                 effective_target = target_delta.to(device=effective_delta.device, dtype=effective_delta.dtype)
                 effective_beta = max(float(getattr(self.args, "st_effective_huber_beta", 0.05)), 1e-6)

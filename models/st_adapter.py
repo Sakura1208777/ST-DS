@@ -317,6 +317,7 @@ class STDenoiser(nn.Module):
             }
         return delta_ts
 
+
 class STFeatureConditioner(nn.Module):
     def __init__(
         self,
@@ -620,8 +621,11 @@ class STEDMPrecondWrapper(nn.Module):
         pad_w = ref_img.shape[-1] - delta_img.shape[-1]
         if pad_h > 0 or pad_w > 0:
             delta_img = F.pad(delta_img, (0, max(0, pad_w), 0, max(0, pad_h)))
-        if delta_img.shape[1] != ref_img.shape[1]:
+        if delta_img.shape[1] > ref_img.shape[1]:
             delta_img = delta_img[:, : ref_img.shape[1]]
+        elif delta_img.shape[1] < ref_img.shape[1]:
+            pad_c = ref_img.shape[1] - delta_img.shape[1]
+            delta_img = F.pad(delta_img, (0, 0, 0, 0, 0, pad_c))
         return delta_img
 
     def _clear_st_state(self):
@@ -681,7 +685,8 @@ class STEDMPrecondWrapper(nn.Module):
             )
             residual_context = residual_context * context_gate
         delta_ts, st_details = self.st_denoiser(
-            base_ts_for_st, sigma, residual_context=residual_context, return_details=True
+            base_ts_for_st, sigma, residual_context=residual_context,
+            return_details=True
         )
         delta_img = self.ts_to_img(delta_ts)
         delta_img = self._match_img_shape(delta_img, base_img_hat).to(base_img_hat.device, base_img_hat.dtype)
@@ -694,6 +699,7 @@ class STEDMPrecondWrapper(nn.Module):
         alpha = self._effective_alpha(base_img_hat)
         trust_gate = self._trust_gate(base_img_hat)
         final_img_hat = base_img_hat + gate * alpha * trust_gate * torch.nan_to_num(delta_img)
+
         self.last_st_state = {
             "base_img_hat": base_img_hat.detach(),
             "delta_img": delta_img.detach(),

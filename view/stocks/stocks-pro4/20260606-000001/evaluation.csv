@@ -1,0 +1,11 @@
+timestamp,dataset,epoch,disc_mean,disc_std,pred_mean,pred_std,cross_corr_mean,context_fid_mean,eval_command
+2026-06-06T22:08:11,stocks,50,0.0136,0.0082,0.037,0.0001,0.0213,0.0172,python run_unconditional.py --config ./configs/unconditional/stocks.yaml --train_budget pro4
+2026-06-06T22:18:45,stocks,100,0.0132,0.0121,0.0368,0.0001,0.0039,0.0105,python run_unconditional.py --config ./configs/unconditional/stocks.yaml --train_budget pro4
+2026-06-06T22:28:46,stocks,150,0.0152,0.0096,0.0366,0.0001,0.0102,0.0271,python run_unconditional.py --config ./configs/unconditional/stocks.yaml --train_budget pro4
+2026-06-06T22:38:50,stocks,200,0.0188,0.0087,0.0367,0.0001,0.0102,0.0279,python run_unconditional.py --config ./configs/unconditional/stocks.yaml --train_budget pro4
+2026-06-06T22:48:58,stocks,250,0.0106,0.0076,0.0367,0.0001,0.013,0.0103,python run_unconditional.py --config ./configs/unconditional/stocks.yaml --train_budget pro4
+2026-06-06T22:59:05,stocks,300,0.0194,0.0101,0.0367,0.0001,0.0129,0.0116,python run_unconditional.py --config ./configs/unconditional/stocks.yaml --train_budget pro4
+2026-06-06T23:09:16,stocks,350,0.0267,0.0126,0.0367,0.0001,0.007,0.0159,python run_unconditional.py --config ./configs/unconditional/stocks.yaml --train_budget pro4
+2026-06-06T23:19:23,stocks,400,0.0113,0.0061,0.0367,0.0001,0.0061,0.0202,python run_unconditional.py --config ./configs/unconditional/stocks.yaml --train_budget pro4
+2026-06-06T23:29:29,stocks,450,0.0163,0.0125,0.0367,0.0001,0.0042,0.019,python run_unconditional.py --config ./configs/unconditional/stocks.yaml --train_budget pro4
+2026-06-06T23:39:36,stocks,500,0.021,0.0103,0.0366,0.0001,0.0093,0.0238,python run_unconditional.py --config ./configs/unconditional/stocks.yaml --train_budget pro4

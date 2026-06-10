@@ -65,7 +65,7 @@ def predictive_score_metrics(ori_data, generated_data, args=None):
 
     # Set maximum sequence length and each sequence length
     ori_time, ori_max_seq_len = extract_time(ori_data)
-    generated_time, generated_max_seq_len = extract_time(ori_data)
+    generated_time, generated_max_seq_len = extract_time(generated_data)
     max_seq_len = max([ori_max_seq_len, generated_max_seq_len])
 
     ## Builde a post-hoc RNN predictive network

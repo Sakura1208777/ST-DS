@@ -1,0 +1,5 @@
+timestamp,dataset,epoch,disc_mean,disc_std,pred_mean,pred_std,cross_corr_mean,context_fid_mean,eval_command
+2026-06-07T21:21:05,stocks,50,0.0261,0.011,0.0368,0.0001,0.0058,-22.6462,python run_unconditional.py --config ./configs/unconditional/stocks.yaml --train_budget max1
+2026-06-07T21:43:32,stocks,100,0.007,0.0058,0.0368,0.0001,0.0076,-22.3179,python run_unconditional.py --config ./configs/unconditional/stocks.yaml --train_budget max1
+2026-06-07T22:06:05,stocks,150,0.0147,0.0092,0.0367,0.0001,0.0065,-20.3848,python run_unconditional.py --config ./configs/unconditional/stocks.yaml --train_budget max1
+2026-06-07T22:28:29,stocks,200,0.0117,0.0084,0.0367,0.0001,0.0068,-19.9625,python run_unconditional.py --config ./configs/unconditional/stocks.yaml --train_budget max1
