@@ -1,0 +1,11 @@
+timestamp            dataset  epoch  disc_mean  disc_std  pred_mean  pred_std  cross_corr_mean  context_fid_mean  eval_command                                                                                
+2026-06-10T22:42:01  stocks   50     0.0334     0.0051    0.0369     0.0001    0.0168           -18.4151          python run_unconditional.py --config ./configs/unconditional/stocks.yaml --train_budget max1
+2026-06-10T23:05:50  stocks   100    0.0244     0.0117    0.0368     0.0001    0.0012           -21.4855          python run_unconditional.py --config ./configs/unconditional/stocks.yaml --train_budget max1
+2026-06-10T23:28:27  stocks   150    0.0154     0.0084    0.0369     0.0001    0.0007           -20.6685          python run_unconditional.py --config ./configs/unconditional/stocks.yaml --train_budget max1
+2026-06-10T23:52:40  stocks   200    0.022      0.0106    0.0367     0.0001    0.0038           -20.2504          python run_unconditional.py --config ./configs/unconditional/stocks.yaml --train_budget max1
+2026-06-11T00:16:45  stocks   250    0.0134     0.0085    0.0367     0.0001    0.0065           -22.7953          python run_unconditional.py --config ./configs/unconditional/stocks.yaml --train_budget max1
+2026-06-11T00:40:06  stocks   300    0.0135     0.0081    0.0367     0.0001    0.0068           -19.8334          python run_unconditional.py --config ./configs/unconditional/stocks.yaml --train_budget max1
+2026-06-11T01:04:13  stocks   350    0.0108     0.0078    0.0367     0.0001    0.0056           -22.8459          python run_unconditional.py --config ./configs/unconditional/stocks.yaml --train_budget max1
+2026-06-11T01:28:21  stocks   400    0.0118     0.0069    0.0367     0.0001    0.0032           -20.2215          python run_unconditional.py --config ./configs/unconditional/stocks.yaml --train_budget max1
+2026-06-11T01:52:12  stocks   450    0.0194     0.0114    0.0367     0.0001    0.0052           -19.5571          python run_unconditional.py --config ./configs/unconditional/stocks.yaml --train_budget max1
+2026-06-11T02:16:22  stocks   500    0.0202     0.0099    0.0367     0.0001    0.0011           -18.1334          python run_unconditional.py --config ./configs/unconditional/stocks.yaml --train_budget max1

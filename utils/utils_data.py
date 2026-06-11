@@ -99,11 +99,42 @@ def sine_data_generation(no, seq_len, dim):
     return data
 
 
+def _load_eeg_eye_state(path='./data/short_range/EEG/EEG_Eye_State.arff'):
+    rows = []
+    in_data = False
+    with open(path, 'r', encoding='utf-8', errors='ignore') as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith('%'):
+                continue
+            if not in_data:
+                if line.lower() == '@data':
+                    in_data = True
+                continue
+            rows.append([float(v) for v in line.split(',')])
+    data = np.asarray(rows, dtype=np.float32)
+    if data.ndim != 2 or data.shape[1] < 2:
+        raise ValueError(f'Invalid EEG Eye State data shape: {data.shape}')
+    return data[:, :-1]
+
+
+def _load_fmri_sim4(path='./data/short_range/fmri/sim4.mat'):
+    import scipy.io as sio
+
+    mat = sio.loadmat(path)
+    if 'ts' not in mat:
+        raise KeyError(f"Missing 'ts' in {path}")
+    data = np.asarray(mat['ts'], dtype=np.float32)
+    if data.ndim != 2:
+        raise ValueError(f'Invalid fmri sim4 ts shape: {data.shape}')
+    return data
+
+
 def real_data_loading(data_name, seq_len):
     """Load and preprocess real-world data.
 
     Args:
-      - data_name: stocks, stock, or energy
+      - data_name: stocks, stock, energy, eeg, or fmri
       - seq_len: sequence length
 
     Returns:
@@ -111,7 +142,8 @@ def real_data_loading(data_name, seq_len):
     """
     if data_name == 'stocks':
         data_name = 'stock'
-    assert data_name in ['stock', 'energy', 'metro']
+    data_name = str(data_name).lower()
+    assert data_name in ['stock', 'energy', 'metro', 'eeg', 'fmri']
 
     if data_name == 'stock':
         ori_data = np.loadtxt('./data/short_range/stock_data.csv', delimiter=",", skiprows=1)
@@ -119,6 +151,10 @@ def real_data_loading(data_name, seq_len):
         ori_data = np.loadtxt('./data/short_range/energy_data.csv', delimiter=",", skiprows=1)
     elif data_name == 'metro':
         ori_data = np.loadtxt('./data/short_range/metro_data.csv', delimiter=",", skiprows=1)
+    elif data_name == 'eeg':
+        ori_data = _load_eeg_eye_state()
+    elif data_name == 'fmri':
+        ori_data = _load_fmri_sim4()
 
     # Flip the data to make chronological data
     ori_data = ori_data[::-1]
@@ -148,7 +184,7 @@ def gen_dataloader(args):
         ori_data = torch.Tensor(np.array(ori_data))
         train_set = Data.TensorDataset(ori_data)
 
-    elif args.dataset in ['stocks', 'stock', 'energy']:
+    elif args.dataset in ['stocks', 'stock', 'energy', 'eeg', 'fmri']:
         ori_data = real_data_loading(args.dataset, args.seq_len)
         ori_data = torch.Tensor(np.array(ori_data))
         train_set = Data.TensorDataset(ori_data)

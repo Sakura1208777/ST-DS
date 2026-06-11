@@ -175,6 +175,11 @@ class STDenoiser(nn.Module):
         period_temperature=0.35,
         period_max_scale=0.20,
         st_dropout=0.0,
+        use_corr_safe_routing=False,
+        corr_safe_hidden=32,
+        corr_safe_trend_min=0.70,
+        corr_safe_season_min=0.35,
+        corr_safe_init_scale=0.95,
     ):
         super().__init__()
         self.input_channels = input_channels
@@ -246,6 +251,16 @@ class STDenoiser(nn.Module):
             if use_var_relation and input_channels > 1
             else None
         )
+        self.branch_scaler = (
+            AdaptiveBranchScaler(
+                hidden=corr_safe_hidden,
+                trend_min=corr_safe_trend_min,
+                season_min=corr_safe_season_min,
+                init_scale=corr_safe_init_scale,
+            )
+            if use_corr_safe_routing
+            else None
+        )
         if zero_init:
             for proj in (self.trend_out[-1], self.season_out[-1]):
                 nn.init.zeros_(proj.weight)
@@ -298,6 +313,12 @@ class STDenoiser(nn.Module):
         season_tokens = season_tokens + self.season_mlp(self.season_norm(season_tokens))
         trend_delta_ts = self.trend_out(trend_tokens)
         season_delta_ts = self.season_out(season_tokens)
+        trend_scale = base_ts_hat.new_tensor(1.0)
+        season_scale = base_ts_hat.new_tensor(1.0)
+        if self.branch_scaler is not None:
+            trend_scale, season_scale = self.branch_scaler(base_ts_hat.detach())
+            trend_delta_ts = trend_delta_ts * trend_scale
+            season_delta_ts = season_delta_ts * season_scale
         delta_raw_ts = self.lma.restore(season_delta_ts, trend_delta_ts)
         relation_beta = base_ts_hat.new_tensor(0.0)
         relation_norm = base_ts_hat.new_tensor(0.0)
@@ -310,12 +331,83 @@ class STDenoiser(nn.Module):
                 "delta_raw_ts": torch.nan_to_num(delta_raw_ts),
                 "trend_delta_ts": torch.nan_to_num(trend_delta_ts),
                 "season_delta_ts": torch.nan_to_num(season_delta_ts),
+                "trend_scale": torch.nan_to_num(trend_scale),
+                "season_scale": torch.nan_to_num(season_scale),
                 "confidence": torch.nan_to_num(confidence),
                 "relation_beta": relation_beta,
                 "relation_norm": relation_norm,
                 "period_details": period_details,
             }
         return delta_ts
+
+
+class AdaptiveBranchScaler(nn.Module):
+    """Sequence-stat driven trend/season residual router.
+
+    The module stays inactive unless a preset explicitly enables corr-safe
+    routing. It only scales the existing ST trend/season deltas and does not
+    change the base branch.
+    """
+
+    def __init__(
+        self,
+        hidden=32,
+        trend_min=0.70,
+        season_min=0.35,
+        init_scale=0.95,
+    ):
+        super().__init__()
+        self.trend_min = min(0.999, max(0.0, float(trend_min)))
+        self.season_min = min(0.999, max(0.0, float(season_min)))
+        hidden = max(4, int(hidden))
+        self.net = nn.Sequential(
+            nn.LayerNorm(6),
+            nn.Linear(6, hidden),
+            nn.SiLU(),
+            nn.Linear(hidden, 2),
+        )
+
+        nn.init.zeros_(self.net[-1].weight)
+        trend_ratio = (float(init_scale) - self.trend_min) / max(1e-6, 1.0 - self.trend_min)
+        season_ratio = (float(init_scale) - self.season_min) / max(1e-6, 1.0 - self.season_min)
+        trend_ratio = min(max(trend_ratio, 1e-6), 1.0 - 1e-6)
+        season_ratio = min(max(season_ratio, 1e-6), 1.0 - 1e-6)
+        with torch.no_grad():
+            self.net[-1].bias.copy_(
+                torch.tensor(
+                    [
+                        math.log(trend_ratio / (1.0 - trend_ratio)),
+                        math.log(season_ratio / (1.0 - season_ratio)),
+                    ],
+                    dtype=torch.float32,
+                )
+            )
+
+    @staticmethod
+    def _lag1_corr(x):
+        if x.shape[1] <= 1:
+            return x.new_zeros(x.shape[0])
+        a = x[:, 1:, :] - x[:, 1:, :].mean(dim=1, keepdim=True)
+        b = x[:, :-1, :] - x[:, :-1, :].mean(dim=1, keepdim=True)
+        denom = (a.square().mean(dim=1) * b.square().mean(dim=1)).clamp_min(1e-8).sqrt()
+        corr = (a * b).mean(dim=1) / denom
+        return torch.nan_to_num(corr).mean(dim=1)
+
+    def forward(self, x_ts):
+        x_ts = torch.nan_to_num(x_ts)
+        std = x_ts.std(dim=1, unbiased=False).mean(dim=1)
+        mean_abs = x_ts.mean(dim=1).abs().mean(dim=1)
+        diff = x_ts[:, 1:, :] - x_ts[:, :-1, :] if x_ts.shape[1] > 1 else torch.zeros_like(x_ts[:, :1, :])
+        diff_std = diff.std(dim=1, unbiased=False).mean(dim=1)
+        rough_ratio = diff_std / std.clamp_min(1e-6)
+        lag1 = self._lag1_corr(x_ts).abs()
+        length = x_ts.new_full((x_ts.shape[0],), math.log(float(max(int(x_ts.shape[1]), 1))))
+        feat = torch.stack([std.log1p(), mean_abs.log1p(), diff_std.log1p(), rough_ratio, lag1, length], dim=1)
+        raw = self.net(feat.to(dtype=x_ts.dtype))
+        scale01 = torch.sigmoid(raw)
+        trend_scale = self.trend_min + (1.0 - self.trend_min) * scale01[:, 0]
+        season_scale = self.season_min + (1.0 - self.season_min) * scale01[:, 1]
+        return trend_scale.reshape(-1, 1, 1), season_scale.reshape(-1, 1, 1)
 
 
 class STFeatureConditioner(nn.Module):
@@ -376,6 +468,94 @@ class STFeatureConditioner(nn.Module):
         return torch.nan_to_num(st_film), {
             "st_film_scale": torch.nan_to_num(scale).abs(),
             "st_film_norm": torch.nan_to_num(st_film).square().mean().sqrt(),
+        }
+
+
+class MultiScaleTemporalConditioner(nn.Module):
+    """Denoising-time temporal condition from sequence-adaptive multi-scale summaries."""
+
+    def __init__(
+        self,
+        input_channels,
+        emb_channels,
+        hidden_channels=64,
+        max_scale=0.03,
+        init_scale=0.005,
+        input_clip=3.0,
+        short_scale=0.50,
+        mid_scale=0.80,
+        long_scale=1.00,
+        mid_threshold=48,
+        long_threshold=200,
+        zero_init=True,
+    ):
+        super().__init__()
+        self.max_scale = max(float(max_scale), 1e-6)
+        self.input_clip = None if input_clip is None else max(float(input_clip), 0.0)
+        self.short_scale = max(0.0, float(short_scale))
+        self.mid_scale = max(0.0, float(mid_scale))
+        self.long_scale = max(0.0, float(long_scale))
+        self.mid_threshold = max(2, int(mid_threshold))
+        self.long_threshold = max(self.mid_threshold + 1, int(long_threshold))
+        self.sigma_embed = SigmaEmbedding(hidden_channels)
+        self.scale_conv = nn.Conv1d(input_channels, hidden_channels, kernel_size=3, padding=1)
+        self.proj = nn.Sequential(
+            nn.LayerNorm(hidden_channels * 5),
+            nn.Linear(hidden_channels * 5, hidden_channels * 2),
+            nn.SiLU(),
+            nn.Linear(hidden_channels * 2, emb_channels),
+        )
+        init = max(min(float(init_scale) / self.max_scale, 0.999), -0.999)
+        self.scale_raw = nn.Parameter(torch.tensor(math.atanh(init), dtype=torch.float32))
+        if zero_init:
+            nn.init.zeros_(self.proj[-1].weight)
+            nn.init.zeros_(self.proj[-1].bias)
+
+    @staticmethod
+    def _auto_kernels(length):
+        if length <= 48:
+            kernels = [1, 2, 4, 6, 12]
+        elif length <= 200:
+            kernels = [1, 4, 8, 16, 32]
+        else:
+            kernels = [1, 8, 16, 32, 64, min(length // 4, 128)]
+        kernels = sorted({max(1, min(int(k), max(1, length))) for k in kernels})
+        return kernels or [1]
+
+    def _seq_scale(self, length, ref):
+        if length <= self.mid_threshold:
+            return ref.new_tensor(self.short_scale)
+        if length <= self.long_threshold:
+            ratio = (length - self.mid_threshold) / max(1, self.long_threshold - self.mid_threshold)
+            return ref.new_tensor(self.short_scale + ratio * (self.mid_scale - self.short_scale))
+        ratio = min(1.0, (length - self.long_threshold) / max(1, 500 - self.long_threshold))
+        return ref.new_tensor(self.mid_scale + ratio * (self.long_scale - self.mid_scale))
+
+    def forward(self, x_ts, sigma):
+        x_ts = torch.nan_to_num(x_ts)
+        if self.input_clip is not None and self.input_clip > 0:
+            x_ts = x_ts.clamp(min=-self.input_clip, max=self.input_clip)
+        batch, length, _ = x_ts.shape
+        pooled = []
+        for kernel in self._auto_kernels(length):
+            smooth = AdaptiveMovingAverage._moving_average(x_ts, kernel)
+            h = F.silu(self.scale_conv(smooth.permute(0, 2, 1)))
+            pooled.append(torch.stack([h.mean(dim=-1), h.std(dim=-1, unbiased=False)], dim=1))
+        stats = torch.stack(pooled, dim=1)
+        mean_avg = stats[:, :, 0, :].mean(dim=1)
+        std_avg = stats[:, :, 1, :].mean(dim=1)
+        mean_max = stats[:, :, 0, :].amax(dim=1)
+        std_max = stats[:, :, 1, :].amax(dim=1)
+        sigma_h = self.sigma_embed(sigma, batch_size=batch, device=x_ts.device, dtype=x_ts.dtype)
+        feat = torch.cat([mean_avg, std_avg, mean_max, std_max, sigma_h], dim=-1)
+        scale = self.max_scale * torch.tanh(self.scale_raw.to(device=x_ts.device, dtype=x_ts.dtype))
+        seq_scale = self._seq_scale(length, x_ts)
+        st_film = seq_scale * scale * self.proj(feat)
+        return torch.nan_to_num(st_film), {
+            "mstc_scale": torch.nan_to_num(scale).abs(),
+            "mstc_seq_scale": torch.nan_to_num(seq_scale),
+            "mstc_norm": torch.nan_to_num(st_film).square().mean().sqrt(),
+            "mstc_kernel_count": x_ts.new_tensor(float(len(self._auto_kernels(length)))),
         }
 
 
@@ -471,6 +651,11 @@ class STEDMPrecondWrapper(nn.Module):
             period_temperature=float(getattr(args, "st_period_temperature", 0.35)),
             period_max_scale=float(getattr(args, "st_period_max_scale", 0.20)),
             st_dropout=float(getattr(args, "st_dropout", 0.0) or 0.0),
+            use_corr_safe_routing=_bool_arg(args, "use_corr_safe_routing", False),
+            corr_safe_hidden=int(getattr(args, "corr_safe_hidden", 32)),
+            corr_safe_trend_min=float(getattr(args, "corr_safe_trend_min", 0.70)),
+            corr_safe_season_min=float(getattr(args, "corr_safe_season_min", 0.35)),
+            corr_safe_init_scale=float(getattr(args, "corr_safe_init_scale", 0.95)),
         )
         self.period_input_conditioner = (
             PeriodicInputConditioner(
@@ -504,6 +689,24 @@ class STEDMPrecondWrapper(nn.Module):
                 zero_init=_bool_arg(args, "st_feature_zero_init", True),
             )
             if self.use_feature_fusion
+            else None
+        )
+        self.multiscale_conditioner = (
+            MultiScaleTemporalConditioner(
+                input_channels=input_channels,
+                emb_channels=emb_channels,
+                hidden_channels=int(getattr(args, "mstc_channels", getattr(args, "st_feature_channels", 64))),
+                max_scale=float(getattr(args, "mstc_max_scale", 0.03)),
+                init_scale=float(getattr(args, "mstc_init_scale", 0.005)),
+                input_clip=getattr(args, "mstc_input_clip", getattr(args, "st_feature_input_clip", 3.0)),
+                short_scale=float(getattr(args, "mstc_short_scale", 0.50)),
+                mid_scale=float(getattr(args, "mstc_mid_scale", 0.80)),
+                long_scale=float(getattr(args, "mstc_long_scale", 1.00)),
+                mid_threshold=int(getattr(args, "mstc_mid_threshold", 48)),
+                long_threshold=int(getattr(args, "mstc_long_threshold", 200)),
+                zero_init=_bool_arg(args, "mstc_zero_init", True),
+            )
+            if _bool_arg(args, "use_multiscale_temporal_condition", False)
             else None
         )
         self._clear_st_state()
@@ -669,6 +872,21 @@ class STEDMPrecondWrapper(nn.Module):
             feature_details["st_feature_gate"] = torch.nan_to_num(feature_gate).mean()
             feature_details["st_film_raw_norm"] = torch.nan_to_num(raw_st_film).square().mean().sqrt()
             feature_details["st_film_gated_norm"] = torch.nan_to_num(st_film).square().mean().sqrt()
+        if self.multiscale_conditioner is not None:
+            mstc_film, mstc_details = self.multiscale_conditioner(noisy_ts.detach(), sigma)
+            raw_mstc_film = mstc_film
+            mstc_gate = self._feature_warmup_gate(x_img) * self._feature_sigma_gate(sigma, x_img) * late_decay_gate
+            mstc_film = torch.nan_to_num(mstc_film * mstc_gate.to(mstc_film.dtype))
+            st_film = mstc_film if st_film is None else torch.nan_to_num(st_film + mstc_film)
+            st_film = self._limit_feature_norm(st_film)
+            feature_details["mstc_enabled"] = x_img.new_tensor(1.0)
+            feature_details["mstc_gate"] = torch.nan_to_num(mstc_gate).mean()
+            feature_details["mstc_raw_norm"] = torch.nan_to_num(raw_mstc_film).square().mean().sqrt()
+            feature_details["mstc_gated_norm"] = torch.nan_to_num(mstc_film).square().mean().sqrt()
+            for key, value in mstc_details.items():
+                feature_details[key] = value
+        else:
+            feature_details["mstc_enabled"] = x_img.new_tensor(0.0)
 
         base_img_hat = self.base_net(x_for_base, sigma, class_labels=class_labels, st_film=st_film, **kwargs)
         base_ts_hat = self.img_to_ts(base_img_hat)
@@ -683,7 +901,7 @@ class STEDMPrecondWrapper(nn.Module):
                 device=base_ts_for_st.device,
                 dtype=base_ts_for_st.dtype,
             )
-            residual_context = residual_context * context_gate
+        residual_context = residual_context * context_gate
         delta_ts, st_details = self.st_denoiser(
             base_ts_for_st, sigma, residual_context=residual_context,
             return_details=True
@@ -713,6 +931,8 @@ class STEDMPrecondWrapper(nn.Module):
             "delta_raw_ts": st_details["delta_raw_ts"],
             "trend_delta_ts": st_details.get("trend_delta_ts"),
             "season_delta_ts": st_details.get("season_delta_ts"),
+            "trend_scale": st_details.get("trend_scale"),
+            "season_scale": st_details.get("season_scale"),
             "confidence": st_details["confidence"],
             "relation_beta": st_details.get("relation_beta"),
             "relation_norm": st_details.get("relation_norm"),
