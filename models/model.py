@@ -970,12 +970,6 @@ class ImagenTime(nn.Module):
             season_delta = st_state.get("season_delta_ts")
             if season_delta is not None:
                 to_log['st/season_delta_norm'] = torch.nan_to_num(season_delta).detach().square().mean().sqrt().item()
-            trend_scale = st_state.get("trend_scale")
-            if trend_scale is not None:
-                to_log['st/trend_scale'] = torch.nan_to_num(trend_scale).detach().mean().item()
-            season_scale = st_state.get("season_scale")
-            if season_scale is not None:
-                to_log['st/season_scale'] = torch.nan_to_num(season_scale).detach().mean().item()
             confidence = st_state.get("confidence")
             if confidence is not None:
                 to_log['st/confidence'] = torch.nan_to_num(confidence).detach().mean().item()
@@ -997,6 +991,12 @@ class ImagenTime(nn.Module):
                 to_log['st/relation_norm'] = torch.nan_to_num(relation_norm).detach().item()
             period_details = st_state.get("period_details") or {}
             for key, value in period_details.items():
+                if torch.is_tensor(value):
+                    to_log[f"st/{key}"] = torch.nan_to_num(value).detach().item()
+                else:
+                    to_log[f"st/{key}"] = float(value)
+            mstc_token_details = st_state.get("mstc_token_details") or {}
+            for key, value in mstc_token_details.items():
                 if torch.is_tensor(value):
                     to_log[f"st/{key}"] = torch.nan_to_num(value).detach().item()
                 else:
