@@ -624,7 +624,7 @@ _TRAIN_BUDGET_PRESETS["max2"] = {
     "mstc_token_dropout": 0.0,
     "mstc_token_zero_init": True,
     # --- Stronger relation regularization (keep beta=0.12 for full capacity) ---
-    "lambda_st_relation_reg": 0.006,
+    "lambda_st_relation_reg": 0.003,
     "st_var_relation_beta": 0.12,
     # --- Same as max1 / pro4 below, copied in full for preset isolation ---
     "use_residual_reliability": True,
@@ -670,7 +670,7 @@ _TRAIN_BUDGET_PRESETS["max2"] = {
     "lambda_st_delta_reg": 0.001,
     "lambda_st_raw_delta_reg": 0.00015,
     "lambda_st_effective": 0.045,
-    "lambda_st_effective_ratio": 0.024,
+    "lambda_st_effective_ratio": 0.018,
     "st_effective_align": False,
     "st_effective_max_ratio": 0.30,
     "st_lma_affine": True,
@@ -698,7 +698,7 @@ _TRAIN_BUDGET_PRESETS["max2"] = {
     "lambda_ds_trend": 0.04,
     "lambda_ds_season": 0.04,
     "lambda_ds_freq": 0.014,
-    "lambda_ds_corr": 0.008,
+    "lambda_ds_corr": 0.004,
     "lambda_ds_dist": 0.004,
     "use_final_dist_train": True,
     "lambda_final_mean": 0.004,
