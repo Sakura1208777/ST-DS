@@ -1,0 +1,8 @@
+timestamp,dataset,epoch,clf_score_mean,clf_score_std,marginal_score_mean,predictive_score_mean,predictive_score_std,eval_command
+2026-06-12T11:51:58,nn5_daily,50,0.9234400987625122,0.8206687569618225,0.019324535503983498,0.7497604489326477,0.1523296982049942,python run_unconditional.py --config ./configs/unconditional/nn5_daily.yaml --train_budget max3
+2026-06-12T11:57:39,nn5_daily,100,0.6273595690727234,0.5978286266326904,0.019809413701295853,0.4826706349849701,0.04440193623304367,python run_unconditional.py --config ./configs/unconditional/nn5_daily.yaml --train_budget max3
+2026-06-12T12:03:48,nn5_daily,150,0.24757488071918488,0.208280548453331,0.020043686032295227,0.4801228642463684,0.09588668495416641,python run_unconditional.py --config ./configs/unconditional/nn5_daily.yaml --train_budget max3
+2026-06-12T12:08:59,nn5_daily,200,0.6436862349510193,0.41293057799339294,0.018801510334014893,0.5433369874954224,0.09940368682146072,python run_unconditional.py --config ./configs/unconditional/nn5_daily.yaml --train_budget max3
+2026-06-12T12:14:12,nn5_daily,250,0.8438596725463867,0.3787786662578583,0.013811018317937851,0.481617271900177,0.09205585718154907,python run_unconditional.py --config ./configs/unconditional/nn5_daily.yaml --train_budget max3
+2026-06-12T12:19:33,nn5_daily,300,0.6547881364822388,0.14791791141033173,0.010460412129759789,0.4599214196205139,0.14571048319339752,python run_unconditional.py --config ./configs/unconditional/nn5_daily.yaml --train_budget max3
+2026-06-12T12:24:57,nn5_daily,350,0.9869411587715149,0.5293260812759399,0.007164305076003075,0.5243234038352966,0.17369568347930908,python run_unconditional.py --config ./configs/unconditional/nn5_daily.yaml --train_budget max3

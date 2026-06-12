@@ -1001,6 +1001,12 @@ class ImagenTime(nn.Module):
                     to_log[f"st/{key}"] = torch.nan_to_num(value).detach().item()
                 else:
                     to_log[f"st/{key}"] = float(value)
+            tfda_token_details = st_state.get("tfda_token_details") or {}
+            for key, value in tfda_token_details.items():
+                if torch.is_tensor(value):
+                    to_log[f"st/{key}"] = torch.nan_to_num(value).detach().item()
+                else:
+                    to_log[f"st/{key}"] = float(value)
             period_input_details = st_state.get("period_input_details") or {}
             for key, value in period_input_details.items():
                 if torch.is_tensor(value):
