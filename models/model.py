@@ -836,6 +836,20 @@ class ImagenTime(nn.Module):
                 + lambda_st_delta_reg * st_delta_reg
                 + lambda_st_raw_delta_reg * st_raw_delta_reg
             )
+            early_st_blend = 0.0
+            early_smooth_scale = 1.0
+            early_spectral_scale = 1.0
+            early_relation_scale = 1.0
+            if bool(getattr(self.args, "use_early_st_stabilize", False)):
+                end_epoch = max(int(getattr(self.args, "early_st_stabilize_end_epoch", 150) or 150), 1)
+                current_epoch = float(getattr(self, "epoch", 0) or 0)
+                early_st_blend = max(0.0, min(1.0, 1.0 - current_epoch / float(end_epoch)))
+                smooth_mult = float(getattr(self.args, "early_st_stabilize_smooth_mult", 1.0) or 1.0)
+                spectral_mult = float(getattr(self.args, "early_st_stabilize_spectral_mult", 1.0) or 1.0)
+                relation_mult = float(getattr(self.args, "early_st_stabilize_relation_mult", 1.0) or 1.0)
+                early_smooth_scale = 1.0 + max(0.0, smooth_mult - 1.0) * early_st_blend
+                early_spectral_scale = 1.0 + max(0.0, spectral_mult - 1.0) * early_st_blend
+                early_relation_scale = 1.0 + max(0.0, relation_mult - 1.0) * early_st_blend
             # --- [MAX1] Delta smoothness regularization ---
             if bool(getattr(self.args, "use_delta_smooth_reg", False)):
                 if effective_delta_ts.shape[1] > 1:
@@ -849,6 +863,7 @@ class ImagenTime(nn.Module):
                     seq_len_val = int(effective_delta_ts.shape[1])
                     if seq_len_val <= 48:
                         lambda_delta_smooth = float(getattr(self.args, "st_short_lambda_delta_smooth", lambda_delta_smooth))
+                lambda_delta_smooth *= early_smooth_scale
                 loss = loss + output.new_tensor(st_calib_scale) * (lambda_delta_smooth * delta_smooth_loss)
                 to_log['st/delta_smooth_loss'] = torch.nan_to_num(delta_smooth_loss).detach().item()
             # --- [MAX1] Delta spectral alignment ---
@@ -865,6 +880,7 @@ class ImagenTime(nn.Module):
                     seq_len_val = int(effective_delta_ts.shape[1])
                     if seq_len_val <= 48:
                         lambda_delta_spectral = float(getattr(self.args, "st_short_lambda_delta_spectral", lambda_delta_spectral))
+                lambda_delta_spectral *= early_spectral_scale
                 loss = loss + output.new_tensor(st_calib_scale) * (lambda_delta_spectral * spectral_loss)
                 to_log['st/delta_spectral_loss'] = torch.nan_to_num(spectral_loss).detach().item()
             if bool(getattr(self.args, "use_pred_structure_loss", False)):
@@ -1009,9 +1025,15 @@ class ImagenTime(nn.Module):
             if relation_beta is not None:
                 relation_reg = torch.nan_to_num(relation_beta).square()
                 lambda_st_relation_reg = float(getattr(self.args, "lambda_st_relation_reg", 0.001))
+                lambda_st_relation_reg *= early_relation_scale
                 loss = loss + output.new_tensor(st_calib_scale) * lambda_st_relation_reg * relation_reg
                 to_log['st/relation_reg'] = torch.nan_to_num(relation_reg).detach().item()
                 to_log['st/relation_beta'] = torch.nan_to_num(relation_beta).detach().item()
+            if bool(getattr(self.args, "use_early_st_stabilize", False)):
+                to_log['st/early_stabilize_blend'] = float(early_st_blend)
+                to_log['st/early_smooth_scale'] = float(early_smooth_scale)
+                to_log['st/early_spectral_scale'] = float(early_spectral_scale)
+                to_log['st/early_relation_scale'] = float(early_relation_scale)
             relation_norm = st_state.get("relation_norm")
             if relation_norm is not None:
                 to_log['st/relation_norm'] = torch.nan_to_num(relation_norm).detach().item()

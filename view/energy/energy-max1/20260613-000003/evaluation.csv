@@ -1,0 +1,6 @@
+timestamp,dataset,epoch,disc_mean,disc_std,pred_mean,pred_std,cross_corr_mean,context_fid_mean,eval_command
+2026-06-13T11:00:52,energy,50,0.1332,0.013,0.2509,0.0001,0.5437,0.0442,python run_unconditional.py --config ./configs/unconditional/energy.yaml --train_budget max1
+2026-06-13T11:38:51,energy,100,0.1209,0.0081,0.2511,0.0002,0.6212,0.0431,python run_unconditional.py --config ./configs/unconditional/energy.yaml --train_budget max1
+2026-06-13T12:18:28,energy,150,0.0459,0.0064,0.2506,0.0002,0.7117,0.0319,python run_unconditional.py --config ./configs/unconditional/energy.yaml --train_budget max1
+2026-06-13T12:58:34,energy,200,0.0307,0.0045,0.2501,0.0002,0.4228,0.0355,python run_unconditional.py --config ./configs/unconditional/energy.yaml --train_budget max1
+2026-06-13T13:37:09,energy,250,0.0246,0.0069,0.2502,0.0002,0.6908,0.0172,python run_unconditional.py --config ./configs/unconditional/energy.yaml --train_budget max1
