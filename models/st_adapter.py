@@ -282,285 +282,79 @@ class MultiScaleTemporalContextTokenAdapter(nn.Module):
         return torch.nan_to_num(trend_tokens), torch.nan_to_num(season_tokens), details
 
 
-class TransFusionTemporalEncoding(nn.Module):
-    def __init__(self, latent_dim, max_len=4096):
+class CausalTemporalConvolution(nn.Module):
+    """Causal Dilated Convolution for expanding temporal receptive field in STDenoiser.
+
+    Uses dilations [1, 2, 4, 8] to expand receptive field from ~5 to ~33 steps.
+    Short sequences (T<=48) are nearly transparent due to length gate.
+    """
+
+    def __init__(self, channels, dilations=None, kernel_size=3, max_scale=0.015,
+                 init_scale=0.003, length_mid=96.0, length_tau=32.0,
+                 zero_init=True, dropout=0.0):
         super().__init__()
-        latent_dim = int(latent_dim)
-        position = torch.arange(max_len, dtype=torch.float32).unsqueeze(1)
-        div_term = torch.exp(
-            torch.arange(0, latent_dim, 2, dtype=torch.float32) * (-math.log(10000.0) / max(latent_dim, 1))
-        )
-        pe = torch.zeros(max_len, latent_dim, dtype=torch.float32)
-        pe[:, 0::2] = torch.sin(position * div_term)
-        if latent_dim > 1:
-            pe[:, 1::2] = torch.cos(position * div_term[: pe[:, 1::2].shape[1]])
-        self.register_buffer("pe", pe.unsqueeze(0), persistent=False)
+        self.channels = channels
+        self.max_scale = max_scale
+        self.length_mid = length_mid
+        self.length_tau = length_tau
+        dilations = dilations or [1, 2, 4, 8]
+        self.dilations = dilations
 
-    def forward(self, x):
-        if x.shape[1] <= self.pe.shape[1]:
-            return x + self.pe[:, : x.shape[1]].to(device=x.device, dtype=x.dtype)
-        extra = x.shape[1] - self.pe.shape[1]
-        tail = self.pe[:, -1:].expand(1, extra, -1)
-        pe = torch.cat([self.pe, tail], dim=1)
-        return x + pe[:, : x.shape[1]].to(device=x.device, dtype=x.dtype)
+        self.layers = nn.ModuleList()
+        for d in dilations:
+            pad = (kernel_size - 1) * d
+            self.layers.append(nn.Sequential(
+                nn.Conv1d(channels, channels, kernel_size, padding=pad, dilation=d),
+                nn.GroupNorm(1, channels),
+                nn.SiLU(),
+            ))
 
-
-class TransFusionTemporalEncoder(nn.Module):
-    def __init__(
-        self,
-        input_channels,
-        latent_dim=64,
-        num_heads=4,
-        num_layers=2,
-        ff_size=256,
-        dropout=0.0,
-        patch_short=1,
-        patch_mid=4,
-        patch_long=16,
-        mid_threshold=48,
-        long_threshold=200,
-        length_mid=96.0,
-        length_tau=32.0,
-        input_clip=None,
-    ):
-        super().__init__()
-        self.input_channels = int(input_channels)
-        self.latent_dim = int(latent_dim)
-        self.patch_short = max(1, int(patch_short))
-        self.patch_mid = max(1, int(patch_mid))
-        self.patch_long = max(1, int(patch_long))
-        self.mid_threshold = max(1, int(mid_threshold))
-        self.long_threshold = max(self.mid_threshold + 1, int(long_threshold))
-        self.length_mid = float(length_mid)
-        self.length_tau = max(float(length_tau), 1e-6)
-        self.input_clip = None if input_clip is None else max(float(input_clip), 0.0)
-        heads = max(1, min(int(num_heads), self.latent_dim))
-        while self.latent_dim % heads != 0 and heads > 1:
-            heads -= 1
-        self.in_proj = nn.Linear(self.input_channels, self.latent_dim)
-        self.sigma_embed = SigmaEmbedding(self.latent_dim)
-        self.pos = TransFusionTemporalEncoding(self.latent_dim)
-        layer = nn.TransformerEncoderLayer(
-            d_model=self.latent_dim,
-            nhead=heads,
-            dim_feedforward=max(int(ff_size), self.latent_dim * 2),
-            dropout=float(dropout),
-            activation="gelu",
-            batch_first=True,
-            norm_first=False,
-        )
-        self.encoder = nn.TransformerEncoder(layer, num_layers=max(1, int(num_layers)))
-        self.out_norm = nn.LayerNorm(self.latent_dim, elementwise_affine=False)
-
-    def patch_size(self, seq_len):
-        seq_len = int(seq_len)
-        if seq_len <= self.mid_threshold:
-            return self.patch_short
-        if seq_len <= self.long_threshold:
-            return self.patch_mid
-        return self.patch_long
-
-    def length_gate(self, ref, seq_len):
-        value = (float(seq_len) - self.length_mid) / self.length_tau
-        return torch.sigmoid(ref.new_tensor(value))
-
-    @staticmethod
-    def _pool_patches(x, patch):
-        seq_len = int(x.shape[1])
-        patch = max(1, int(patch))
-        if patch <= 1:
-            return x, 0
-        y = x.permute(0, 2, 1)
-        pad = (patch - seq_len % patch) % patch
-        if pad > 0:
-            y = F.pad(y, (0, pad), mode="replicate")
-        y = F.avg_pool1d(y, kernel_size=patch, stride=patch)
-        return y.permute(0, 2, 1), pad
-
-    @staticmethod
-    def upsample_tokens(tokens, target_len):
-        if tokens.shape[1] == target_len:
-            return tokens
-        y = tokens.permute(0, 2, 1)
-        y = F.interpolate(y, size=int(target_len), mode="linear", align_corners=False)
-        return y.permute(0, 2, 1)
-
-    def forward(self, x_ts, sigma):
-        x_ts = torch.nan_to_num(x_ts)
-        if self.input_clip is not None and self.input_clip > 0:
-            x_ts = x_ts.clamp(min=-self.input_clip, max=self.input_clip)
-        batch, seq_len, channels = x_ts.shape
-        if channels != self.input_channels:
-            raise ValueError(f"TFDA expected {self.input_channels} channels, got {channels}.")
-        patch = self.patch_size(seq_len)
-        pooled, _ = self._pool_patches(x_ts, patch)
-        tokens = self.in_proj(pooled)
-        sigma_token = self.sigma_embed(sigma, batch_size=batch, device=x_ts.device, dtype=x_ts.dtype).unsqueeze(1)
-        tokens = torch.cat([sigma_token.to(tokens.dtype), tokens], dim=1)
-        tokens = self.pos(tokens)
-        tokens = self.encoder(tokens)
-        tokens = self.out_norm(tokens[:, 1:, :])
-        return torch.nan_to_num(tokens), {
-            "patch": float(patch),
-            "token_count": float(tokens.shape[1]),
-            "length_gate": self.length_gate(x_ts, seq_len),
-        }
-
-
-class TransFusionFilmConditioner(nn.Module):
-    def __init__(
-        self,
-        input_channels,
-        emb_channels,
-        latent_dim=64,
-        num_heads=4,
-        num_layers=2,
-        ff_size=256,
-        dropout=0.0,
-        patch_short=1,
-        patch_mid=4,
-        patch_long=16,
-        mid_threshold=48,
-        long_threshold=200,
-        length_mid=96.0,
-        length_tau=32.0,
-        max_scale=0.008,
-        init_scale=0.0015,
-        input_clip=3.0,
-        zero_init=True,
-    ):
-        super().__init__()
-        self.max_scale = max(float(max_scale), 1e-6)
-        self.encoder = TransFusionTemporalEncoder(
-            input_channels=input_channels,
-            latent_dim=latent_dim,
-            num_heads=num_heads,
-            num_layers=num_layers,
-            ff_size=ff_size,
-            dropout=dropout,
-            patch_short=patch_short,
-            patch_mid=patch_mid,
-            patch_long=patch_long,
-            mid_threshold=mid_threshold,
-            long_threshold=long_threshold,
-            length_mid=length_mid,
-            length_tau=length_tau,
-            input_clip=input_clip,
-        )
-        self.proj = nn.Sequential(
-            nn.LayerNorm(int(latent_dim) * 3, elementwise_affine=False),
-            nn.Linear(int(latent_dim) * 3, int(latent_dim) * 2),
-            nn.SiLU(),
-            nn.Linear(int(latent_dim) * 2, int(emb_channels)),
-        )
-        init = max(min(float(init_scale) / self.max_scale, 0.999), -0.999)
-        self.scale_raw = nn.Parameter(torch.tensor(math.atanh(init), dtype=torch.float32))
+        self.out_proj = nn.Linear(channels, channels)
         if zero_init:
-            nn.init.zeros_(self.proj[-1].weight)
-            nn.init.zeros_(self.proj[-1].bias)
+            nn.init.zeros_(self.out_proj.weight)
+            nn.init.zeros_(self.out_proj.bias)
 
-    def forward(self, x_ts, sigma):
-        tokens, enc_details = self.encoder(x_ts, sigma)
-        mean = tokens.mean(dim=1)
-        std = tokens.std(dim=1, unbiased=False)
-        max_abs = tokens.abs().amax(dim=1)
-        feat = torch.cat([mean, std, max_abs], dim=1)
-        scale = self.max_scale * torch.tanh(self.scale_raw.to(device=x_ts.device, dtype=x_ts.dtype))
-        length_gate = enc_details["length_gate"].to(device=x_ts.device, dtype=x_ts.dtype)
-        st_film = torch.nan_to_num(length_gate * scale * self.proj(feat))
-        return st_film, {
-            "tfda_film_enabled": x_ts.new_tensor(1.0),
-            "tfda_film_length_gate": torch.nan_to_num(length_gate),
-            "tfda_film_scale": torch.nan_to_num(scale.abs()),
-            "tfda_film_norm": torch.nan_to_num(st_film).square().mean().sqrt(),
-            "tfda_film_patch": enc_details["patch"],
-            "tfda_film_token_count": enc_details["token_count"],
+        self.gate_proj = nn.Linear(channels, 1)
+        nn.init.zeros_(self.gate_proj.weight)
+        nn.init.zeros_(self.gate_proj.bias)
+
+        self.dropout = nn.Dropout(dropout) if dropout > 0 else nn.Identity()
+
+    def _length_gate(self, seq_len):
+        if seq_len <= 1:
+            return 0.0
+        x = (float(seq_len) - self.length_mid) / self.length_tau
+        import math as _m
+        return 1.0 / (1.0 + _m.exp(-x))
+
+    def forward(self, tokens):
+        """tokens: (B, T, C)"""
+        B, T, C = tokens.shape
+        length_gate = self._length_gate(T)
+        if length_gate < 1e-4:
+            return tokens, {"ctc_length_gate": 0.0, "ctc_output_norm": 0.0}
+
+        x = tokens.permute(0, 2, 1)  # (B, C, T)
+        for layer in self.layers:
+            out = layer(x)
+            # Causal: remove future padding
+            if out.shape[2] > T:
+                out = out[:, :, :T]
+            x = x + out
+
+        x = x.permute(0, 2, 1)  # (B, T, C)
+        x = self.dropout(x)
+
+        strength = torch.sigmoid(self.gate_proj(x.mean(dim=1, keepdim=True)))  # (B, 1, 1)
+        update = self.out_proj(x) * strength * self.max_scale * length_gate
+
+        result = tokens + update
+
+        details = {
+            "ctc_length_gate": float(length_gate),
+            "ctc_output_norm": torch.nan_to_num(update).detach().square().mean().sqrt().item(),
         }
-
-
-class TransFusionTokenContextAdapter(nn.Module):
-    def __init__(
-        self,
-        token_channels,
-        latent_dim=64,
-        num_heads=4,
-        num_layers=2,
-        ff_size=256,
-        dropout=0.0,
-        patch_short=1,
-        patch_mid=4,
-        patch_long=16,
-        mid_threshold=48,
-        long_threshold=200,
-        length_mid=96.0,
-        length_tau=32.0,
-        max_scale=0.006,
-        init_scale=0.001,
-        zero_init=True,
-    ):
-        super().__init__()
-        self.max_scale = max(float(max_scale), 1e-6)
-        kwargs = dict(
-            input_channels=int(token_channels),
-            latent_dim=int(latent_dim),
-            num_heads=int(num_heads),
-            num_layers=int(num_layers),
-            ff_size=int(ff_size),
-            dropout=float(dropout),
-            patch_short=patch_short,
-            patch_mid=patch_mid,
-            patch_long=patch_long,
-            mid_threshold=mid_threshold,
-            long_threshold=long_threshold,
-            length_mid=length_mid,
-            length_tau=length_tau,
-            input_clip=None,
-        )
-        self.trend_encoder = TransFusionTemporalEncoder(**kwargs)
-        self.season_encoder = TransFusionTemporalEncoder(**kwargs)
-        self.trend_proj = nn.Sequential(
-            nn.LayerNorm(int(latent_dim), elementwise_affine=False),
-            nn.Linear(int(latent_dim), int(token_channels)),
-        )
-        self.season_proj = nn.Sequential(
-            nn.LayerNorm(int(latent_dim), elementwise_affine=False),
-            nn.Linear(int(latent_dim), int(token_channels)),
-        )
-        init = max(min(float(init_scale) / self.max_scale, 0.999), -0.999)
-        self.scale_raw = nn.Parameter(torch.tensor(math.atanh(init), dtype=torch.float32))
-        if zero_init:
-            nn.init.zeros_(self.trend_proj[-1].weight)
-            nn.init.zeros_(self.trend_proj[-1].bias)
-            nn.init.zeros_(self.season_proj[-1].weight)
-            nn.init.zeros_(self.season_proj[-1].bias)
-
-    def forward(self, trend_tokens, season_tokens, sigma):
-        seq_len = int(trend_tokens.shape[1])
-        trend_ctx, trend_details = self.trend_encoder(trend_tokens, sigma)
-        season_ctx, season_details = self.season_encoder(season_tokens, sigma)
-        trend_ctx = self.trend_encoder.upsample_tokens(trend_ctx, seq_len)
-        season_ctx = self.season_encoder.upsample_tokens(season_ctx, seq_len)
-        scale = self.max_scale * torch.tanh(self.scale_raw.to(device=trend_tokens.device, dtype=trend_tokens.dtype))
-        length_gate = trend_details["length_gate"].to(device=trend_tokens.device, dtype=trend_tokens.dtype)
-        strength = torch.nan_to_num(length_gate * scale)
-        trend_update = self.trend_proj(trend_ctx)
-        season_update = self.season_proj(season_ctx)
-        trend_tokens = trend_tokens + strength * trend_update
-        season_tokens = season_tokens + strength * season_update
-        update_norm = 0.5 * (
-            torch.nan_to_num(trend_update).square().mean().sqrt()
-            + torch.nan_to_num(season_update).square().mean().sqrt()
-        )
-        return torch.nan_to_num(trend_tokens), torch.nan_to_num(season_tokens), {
-            "tfda_token_enabled": trend_tokens.new_tensor(1.0),
-            "tfda_token_length_gate": torch.nan_to_num(length_gate),
-            "tfda_token_scale": torch.nan_to_num(scale.abs()),
-            "tfda_token_strength": torch.nan_to_num(strength.abs()),
-            "tfda_token_norm": torch.nan_to_num(update_norm),
-            "tfda_token_patch": trend_details["patch"],
-            "tfda_token_token_count": trend_details["token_count"],
-            "tfda_token_season_patch": season_details["patch"],
-        }
+        return result, details
 
 
 class STDenoiser(nn.Module):
@@ -595,22 +389,15 @@ class STDenoiser(nn.Module):
         mstc_token_length_tau=32.0,
         mstc_token_dropout=0.0,
         mstc_token_zero_init=True,
-        use_tfda_token_context=False,
-        tfda_latent_dim=64,
-        tfda_num_heads=4,
-        tfda_num_layers=2,
-        tfda_ff_size=256,
-        tfda_dropout=0.0,
-        tfda_patch_short=1,
-        tfda_patch_mid=4,
-        tfda_patch_long=16,
-        tfda_mid_threshold=48,
-        tfda_long_threshold=200,
-        tfda_length_mid=96.0,
-        tfda_length_tau=32.0,
-        tfda_token_max_scale=0.006,
-        tfda_token_init_scale=0.001,
-        tfda_zero_init=True,
+        use_ctc=False,
+        ctc_dilations=None,
+        ctc_kernel_size=3,
+        ctc_max_scale=0.015,
+        ctc_init_scale=0.003,
+        ctc_length_mid=96.0,
+        ctc_length_tau=32.0,
+        ctc_zero_init=True,
+        ctc_dropout=0.0,
     ):
         super().__init__()
         self.input_channels = input_channels
@@ -654,26 +441,19 @@ class STDenoiser(nn.Module):
             if use_mstc_token_adapter
             else None
         )
-        self.tfda_token_adapter = (
-            TransFusionTokenContextAdapter(
-                token_channels=st_channels,
-                latent_dim=tfda_latent_dim,
-                num_heads=tfda_num_heads,
-                num_layers=tfda_num_layers,
-                ff_size=tfda_ff_size,
-                dropout=tfda_dropout,
-                patch_short=tfda_patch_short,
-                patch_mid=tfda_patch_mid,
-                patch_long=tfda_patch_long,
-                mid_threshold=tfda_mid_threshold,
-                long_threshold=tfda_long_threshold,
-                length_mid=tfda_length_mid,
-                length_tau=tfda_length_tau,
-                max_scale=tfda_token_max_scale,
-                init_scale=tfda_token_init_scale,
-                zero_init=tfda_zero_init,
+        self.ctc = (
+            CausalTemporalConvolution(
+                channels=st_channels,
+                dilations=ctc_dilations,
+                kernel_size=ctc_kernel_size,
+                max_scale=ctc_max_scale,
+                init_scale=ctc_init_scale,
+                length_mid=ctc_length_mid,
+                length_tau=ctc_length_tau,
+                zero_init=ctc_zero_init,
+                dropout=ctc_dropout,
             )
-            if use_tfda_token_context
+            if use_ctc
             else None
         )
         heads = max(1, min(int(st_nheads), st_channels))
@@ -766,11 +546,12 @@ class STDenoiser(nn.Module):
         mstc_token_details = {}
         if self.mstc_token_adapter is not None:
             trend_tokens, season_tokens, mstc_token_details = self.mstc_token_adapter(trend_tokens, season_tokens)
-        tfda_token_details = {}
-        if self.tfda_token_adapter is not None:
-            trend_tokens, season_tokens, tfda_token_details = self.tfda_token_adapter(
-                trend_tokens, season_tokens, sigma
-            )
+        ctc_details = {}
+        if self.ctc is not None:
+            trend_tokens, ctc_trend_details = self.ctc(trend_tokens)
+            season_tokens, ctc_season_details = self.ctc(season_tokens)
+            ctc_details = {f"ctc_trend_{k}": v for k, v in ctc_trend_details.items()}
+            ctc_details.update({f"ctc_season_{k}": v for k, v in ctc_season_details.items()})
         trend_cross, _ = self.trend_cross_attn(trend_tokens, season_tokens, season_tokens, need_weights=False)
         season_cross, _ = self.season_cross_attn(season_tokens, trend_tokens, trend_tokens, need_weights=False)
         trend_tokens = trend_tokens + trend_cross
@@ -796,7 +577,7 @@ class STDenoiser(nn.Module):
                 "relation_norm": relation_norm,
                 "period_details": period_details,
                 "mstc_token_details": mstc_token_details,
-                "tfda_token_details": tfda_token_details,
+                "ctc_details": ctc_details,
             }
         return delta_ts
 
@@ -1070,22 +851,15 @@ class STEDMPrecondWrapper(nn.Module):
             mstc_token_length_tau=float(getattr(args, "mstc_token_length_tau", 32.0)),
             mstc_token_dropout=float(getattr(args, "mstc_token_dropout", 0.0) or 0.0),
             mstc_token_zero_init=_bool_arg(args, "mstc_token_zero_init", True),
-            use_tfda_token_context=_bool_arg(args, "use_tfda_token_context", False),
-            tfda_latent_dim=int(getattr(args, "tfda_latent_dim", 64)),
-            tfda_num_heads=int(getattr(args, "tfda_num_heads", 4)),
-            tfda_num_layers=int(getattr(args, "tfda_num_layers", 2)),
-            tfda_ff_size=int(getattr(args, "tfda_ff_size", 256)),
-            tfda_dropout=float(getattr(args, "tfda_dropout", 0.0) or 0.0),
-            tfda_patch_short=int(getattr(args, "tfda_patch_short", 1)),
-            tfda_patch_mid=int(getattr(args, "tfda_patch_mid", 4)),
-            tfda_patch_long=int(getattr(args, "tfda_patch_long", 16)),
-            tfda_mid_threshold=int(getattr(args, "tfda_mid_threshold", 48)),
-            tfda_long_threshold=int(getattr(args, "tfda_long_threshold", 200)),
-            tfda_length_mid=float(getattr(args, "tfda_length_mid", 96.0)),
-            tfda_length_tau=float(getattr(args, "tfda_length_tau", 32.0)),
-            tfda_token_max_scale=float(getattr(args, "tfda_token_max_scale", 0.006)),
-            tfda_token_init_scale=float(getattr(args, "tfda_token_init_scale", 0.001)),
-            tfda_zero_init=_bool_arg(args, "tfda_zero_init", True),
+            use_ctc=_bool_arg(args, "use_ctc", False),
+            ctc_dilations=getattr(args, "ctc_dilations", None),
+            ctc_kernel_size=int(getattr(args, "ctc_kernel_size", 3)),
+            ctc_max_scale=float(getattr(args, "ctc_max_scale", 0.015)),
+            ctc_init_scale=float(getattr(args, "ctc_init_scale", 0.003)),
+            ctc_length_mid=float(getattr(args, "ctc_length_mid", 96.0)),
+            ctc_length_tau=float(getattr(args, "ctc_length_tau", 32.0)),
+            ctc_zero_init=_bool_arg(args, "ctc_zero_init", True),
+            ctc_dropout=float(getattr(args, "ctc_dropout", 0.0) or 0.0),
         )
         self.period_input_conditioner = (
             PeriodicInputConditioner(
@@ -1135,30 +909,6 @@ class STEDMPrecondWrapper(nn.Module):
                 zero_init=_bool_arg(args, "transition_context_zero_init", True),
             )
             if _bool_arg(args, "use_transition_context_film", False)
-            else None
-        )
-        self.tfda_film_conditioner = (
-            TransFusionFilmConditioner(
-                input_channels=input_channels,
-                emb_channels=emb_channels,
-                latent_dim=int(getattr(args, "tfda_latent_dim", 64)),
-                num_heads=int(getattr(args, "tfda_num_heads", 4)),
-                num_layers=int(getattr(args, "tfda_num_layers", 2)),
-                ff_size=int(getattr(args, "tfda_ff_size", 256)),
-                dropout=float(getattr(args, "tfda_dropout", 0.0) or 0.0),
-                patch_short=int(getattr(args, "tfda_patch_short", 1)),
-                patch_mid=int(getattr(args, "tfda_patch_mid", 4)),
-                patch_long=int(getattr(args, "tfda_patch_long", 16)),
-                mid_threshold=int(getattr(args, "tfda_mid_threshold", 48)),
-                long_threshold=int(getattr(args, "tfda_long_threshold", 200)),
-                length_mid=float(getattr(args, "tfda_length_mid", 96.0)),
-                length_tau=float(getattr(args, "tfda_length_tau", 32.0)),
-                max_scale=float(getattr(args, "tfda_max_scale", 0.008)),
-                init_scale=float(getattr(args, "tfda_init_scale", 0.0015)),
-                input_clip=getattr(args, "tfda_input_clip", 3.0),
-                zero_init=_bool_arg(args, "tfda_zero_init", True),
-            )
-            if _bool_arg(args, "use_tfda_film", False)
             else None
         )
         self._clear_st_state()
@@ -1336,19 +1086,6 @@ class STEDMPrecondWrapper(nn.Module):
             feature_details["transition_context_gated_norm"] = torch.nan_to_num(transition_film).square().mean().sqrt()
             for key, value in transition_details.items():
                 feature_details[key] = value
-        if self.tfda_film_conditioner is not None:
-            tfda_film, tfda_details = self.tfda_film_conditioner(noisy_ts.detach(), sigma)
-            raw_tfda_film = tfda_film
-            tfda_gate = self._feature_warmup_gate(x_img) * self._feature_sigma_gate(sigma, x_img) * late_decay_gate
-            tfda_film = torch.nan_to_num(tfda_film * tfda_gate.to(tfda_film.dtype))
-            st_film = tfda_film if st_film is None else torch.nan_to_num(st_film + tfda_film)
-            st_film = self._limit_feature_norm(st_film)
-            feature_details["tfda_film_gate"] = torch.nan_to_num(tfda_gate).mean()
-            feature_details["tfda_film_raw_norm"] = torch.nan_to_num(raw_tfda_film).square().mean().sqrt()
-            feature_details["tfda_film_gated_norm"] = torch.nan_to_num(tfda_film).square().mean().sqrt()
-            for key, value in tfda_details.items():
-                feature_details[key] = value
-
         base_img_hat = self.base_net(x_for_base, sigma, class_labels=class_labels, st_film=st_film, **kwargs)
         base_ts_hat = self.img_to_ts(base_img_hat)
         base_ts_clean = base_ts_hat.detach()
@@ -1397,7 +1134,7 @@ class STEDMPrecondWrapper(nn.Module):
             "relation_norm": st_details.get("relation_norm"),
             "period_details": st_details.get("period_details", {}),
             "mstc_token_details": st_details.get("mstc_token_details", {}),
-            "tfda_token_details": st_details.get("tfda_token_details", {}),
+            "ctc_details": st_details.get("ctc_details", {}),
             "period_input_details": period_input_details,
             "feature_details": feature_details,
             "period_input_gate": period_input_gate,

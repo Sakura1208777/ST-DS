@@ -104,26 +104,6 @@ def _add_st_ds_args(parser):
     parser.add_argument('--mstc_token_length_tau', type=float, default=None)
     parser.add_argument('--mstc_token_dropout', type=float, default=None)
     parser.add_argument('--mstc_token_zero_init', type=_str2bool, default=None)
-    parser.add_argument('--use_tfda_film', type=_str2bool, default=None)
-    parser.add_argument('--use_tfda_token_context', type=_str2bool, default=None)
-    parser.add_argument('--tfda_latent_dim', type=int, default=None)
-    parser.add_argument('--tfda_num_heads', type=int, default=None)
-    parser.add_argument('--tfda_num_layers', type=int, default=None)
-    parser.add_argument('--tfda_ff_size', type=int, default=None)
-    parser.add_argument('--tfda_dropout', type=float, default=None)
-    parser.add_argument('--tfda_patch_short', type=int, default=None)
-    parser.add_argument('--tfda_patch_mid', type=int, default=None)
-    parser.add_argument('--tfda_patch_long', type=int, default=None)
-    parser.add_argument('--tfda_mid_threshold', type=int, default=None)
-    parser.add_argument('--tfda_long_threshold', type=int, default=None)
-    parser.add_argument('--tfda_length_mid', type=float, default=None)
-    parser.add_argument('--tfda_length_tau', type=float, default=None)
-    parser.add_argument('--tfda_max_scale', type=float, default=None)
-    parser.add_argument('--tfda_init_scale', type=float, default=None)
-    parser.add_argument('--tfda_token_max_scale', type=float, default=None)
-    parser.add_argument('--tfda_token_init_scale', type=float, default=None)
-    parser.add_argument('--tfda_input_clip', type=float, default=None)
-    parser.add_argument('--tfda_zero_init', type=_str2bool, default=None)
 
     parser.add_argument('--st_input_noise', type=float, default=None)
     parser.add_argument('--use_late_decay', type=_str2bool, default=None)
@@ -160,6 +140,9 @@ def _add_st_ds_args(parser):
     parser.add_argument('--reliability_effective_boost', type=float, default=None)
     parser.add_argument('--residual_reliability_per_timestep', type=_str2bool, default=None)
     parser.add_argument('--residual_reliability_warmup_ratio', type=float, default=None)
+    parser.add_argument('--residual_reliability_short_gate', type=_str2bool, default=None)
+    parser.add_argument('--residual_reliability_length_mid', type=float, default=None)
+    parser.add_argument('--residual_reliability_length_tau', type=float, default=None)
     parser.add_argument('--use_pred_structure_loss', type=_str2bool, default=None)
     parser.add_argument('--pred_structure_max_lag', type=int, default=None)
     parser.add_argument('--pred_structure_max_channels', type=int, default=None)
@@ -179,6 +162,23 @@ def _add_st_ds_args(parser):
     parser.add_argument('--lambda_delta_smooth', type=float, default=None)
     parser.add_argument('--use_delta_spectral_reg', type=_str2bool, default=None)
     parser.add_argument('--lambda_delta_spectral', type=float, default=None)
+    parser.add_argument('--st_len_adaptive_reg', type=_str2bool, default=None)
+    parser.add_argument('--st_short_lambda_delta_smooth', type=float, default=None)
+    parser.add_argument('--st_short_lambda_delta_spectral', type=float, default=None)
+    parser.add_argument('--use_delta_explore', type=_str2bool, default=None)
+    parser.add_argument('--delta_explore_std', type=float, default=None)
+    parser.add_argument('--delta_explore_start_epoch', type=int, default=None)
+    parser.add_argument('--delta_explore_end_ratio', type=float, default=None)
+    parser.add_argument('--delta_explore_decay_power', type=float, default=None)
+    parser.add_argument('--use_ctc', type=_str2bool, default=None)
+    parser.add_argument('--ctc_dilations', type=int, nargs='+', default=None)
+    parser.add_argument('--ctc_kernel_size', type=int, default=None)
+    parser.add_argument('--ctc_max_scale', type=float, default=None)
+    parser.add_argument('--ctc_init_scale', type=float, default=None)
+    parser.add_argument('--ctc_length_mid', type=float, default=None)
+    parser.add_argument('--ctc_length_tau', type=float, default=None)
+    parser.add_argument('--ctc_zero_init', type=_str2bool, default=None)
+    parser.add_argument('--ctc_dropout', type=float, default=None)
     parser.add_argument('--use_transition_teacher', type=_str2bool, default=None)
     parser.add_argument('--transition_teacher_horizons', type=int, nargs='+', default=None)
     parser.add_argument('--transition_teacher_ridge', type=float, default=None)
@@ -210,6 +210,17 @@ def _add_st_ds_args(parser):
     parser.add_argument('--lambda_ds_freq', type=float, default=None)
     parser.add_argument('--lambda_ds_corr', type=float, default=None)
     parser.add_argument('--lambda_ds_dist', type=float, default=None)
+    parser.add_argument('--lambda_ds_ar_residual', type=float, default=None)
+    parser.add_argument('--ds_ar_order', type=int, default=None)
+    parser.add_argument('--lambda_ds_multi_lag', type=float, default=None)
+    parser.add_argument('--ds_multi_lag_lags', type=int, nargs='+', default=None)
+    parser.add_argument('--lambda_ds_coherence', type=float, default=None)
+    parser.add_argument('--ds_coherence_max_channels', type=int, default=None)
+    parser.add_argument('--ds_coherence_min_channels', type=int, default=None)
+    parser.add_argument('--use_ds_long_loss_gate', type=_str2bool, default=None)
+    parser.add_argument('--ds_long_loss_length_mid', type=float, default=None)
+    parser.add_argument('--ds_long_loss_length_tau', type=float, default=None)
+    parser.add_argument('--ds_long_loss_gate_floor', type=float, default=None)
     parser.add_argument('--ds_inference_kernel', type=_str2bool, default=None)
     parser.add_argument('--use_final_dist_train', type=_str2bool, default=None)
     parser.add_argument('--final_dist_quantiles', type=float, nargs='+', default=None)
@@ -518,7 +529,7 @@ _TRAIN_BUDGET_PRESETS["max1"] = {
     "ema_decay": 0.999,
     # --- Late decay (prevents late-epoch overfitting) ---
     "use_late_decay": True,
-    "late_decay_start_ratio": 0.55,
+    "late_decay_start_ratio": 0.60,
     "late_decay_start_epoch": 0,
     "late_decay_min_scale": 0.50,
     "late_decay_power": 1.0,
@@ -529,7 +540,7 @@ _TRAIN_BUDGET_PRESETS["max1"] = {
     "lambda_delta_smooth": 0.005,
     # --- Delta spectral alignment ---
     "use_delta_spectral_reg": True,
-    "lambda_delta_spectral": 0.004,
+    "lambda_delta_spectral": 0.003,
     # --- Sequence-adaptive pred_structure lag ---
     "pred_structure_auto_lag": True,
     # --- Variable relation constraints (stronger than pro4) ---
@@ -606,14 +617,14 @@ _TRAIN_BUDGET_PRESETS["max1"] = {
     "ds_warmup_epochs": 120,
     "lambda_ds_trend": 0.04,
     "lambda_ds_season": 0.04,
-    "lambda_ds_freq": 0.014,
+    "lambda_ds_freq": 0.012,
     "lambda_ds_corr": 0.004,
     "lambda_ds_dist": 0.004,
     "use_final_dist_train": True,
     "lambda_final_mean": 0.004,
     "lambda_final_std": 0.008,
     "lambda_final_diff_std": 0.016,
-    "lambda_final_quantile": 0.012,
+    "lambda_final_quantile": 0.010,
     "lambda_final_highfreq": 0.005,
     "use_period_train": False,
     "period_lma_kernels": [1, 2, 4, 6, 12],
@@ -626,178 +637,47 @@ _TRAIN_BUDGET_PRESETS["max1"] = {
     "lambda_period_phase": 0.0015,
 }
 
-# === [MAX2] max2: max1 + stabilized delta/relation/corr (no upper-limit reduction) ===
+# === [MAX2] max2: CTC + multi-lag autocorr + AR(3) + spectral coherence + length-adaptive reg ===
 _TRAIN_BUDGET_PRESETS["max2"] = {
     "ema_decay": 0.999,
+    # --- Late decay (prevents late-epoch overfitting) ---
     "use_late_decay": True,
-    "late_decay_start_ratio": 0.55,
+    "late_decay_start_ratio": 0.60,
     "late_decay_start_epoch": 0,
     "late_decay_min_scale": 0.50,
     "late_decay_power": 1.0,
     "late_decay_st_strength": True,
     "late_decay_style_loss": False,
-    # --- Stronger delta smoothness & spectral stability (not amplitude cap) ---
+    # --- Delta smoothness regularization (length-adaptive) ---
     "use_delta_smooth_reg": True,
-    "lambda_delta_smooth": 0.010,
+    "lambda_delta_smooth": 0.005,
+    # --- Delta spectral alignment (length-adaptive) ---
     "use_delta_spectral_reg": True,
-    "lambda_delta_spectral": 0.006,
+    "lambda_delta_spectral": 0.003,
+    # --- Length-adaptive regularization: short-sequence params aligned with max1 ---
+    "st_len_adaptive_reg": True,
+    "st_short_lambda_delta_smooth": 0.005,
+    "st_short_lambda_delta_spectral": 0.003,
+    # --- Sequence-adaptive pred_structure lag ---
     "pred_structure_auto_lag": True,
-    # --- [MAX2] MSTC-token: coarse-scale temporal self-attention inside ST tokens ---
-    "use_mstc_token_adapter": True,
-    "mstc_token_scales": [4, 16],
-    "mstc_token_heads": 4,
-    "mstc_token_max_scale": 0.015,
-    "mstc_token_init_scale": 0.003,
-    "mstc_token_length_mid": 96.0,
-    "mstc_token_length_tau": 32.0,
-    "mstc_token_dropout": 0.0,
-    "mstc_token_zero_init": True,
-    # --- [MAX2] Long-range transition context injected into the base U-Net embedding ---
-    "use_transition_context_film": True,
-    "transition_context_scales": [4, 16],
-    "transition_context_hidden": 64,
-    "transition_context_max_scale": 0.008,
-    "transition_context_init_scale": 0.0015,
-    "transition_context_input_clip": 3.0,
-    "transition_context_length_mid": 96.0,
-    "transition_context_length_tau": 32.0,
-    "transition_context_zero_init": True,
-    # --- Stronger relation regularization (keep beta=0.12 for full capacity) ---
-    "lambda_st_relation_reg": 0.003,
-    "st_var_relation_beta": 0.12,
-    # --- Same as max1 / pro4 below, copied in full for preset isolation ---
-    "use_residual_reliability": True,
-    "residual_reliability_min": 0.20,
-    "residual_reliability_power": 1.0,
-    "residual_reliability_kernels": [3, 5, 7, 11],
-    "residual_reliability_freq_topk": 3,
-    "residual_reliability_acf_max_lag": 12,
-    "reliability_delta_reg_boost": 2.0,
-    "reliability_effective_boost": 2.0,
-    "use_pred_structure_loss": True,
-    "pred_structure_max_lag": 6,
-    "pred_structure_max_channels": 64,
-    "pred_structure_include_cross": True,
-    "pred_structure_no_self": True,
-    "pred_structure_adaptive": True,
-    "pred_structure_warmup_ratio": 0.25,
-    "pred_structure_warmup_window": 0.05,
-    "pred_structure_strength_floor": 0.04,
-    "pred_structure_strength_scale": 0.20,
-    "pred_structure_confidence_min": 0.0,
-    "pred_structure_confidence_power": 1.0,
-    "pred_structure_huber_beta": 0.03,
-    "lambda_pred_structure": 0.003,
-    "st_alpha": 0.06,
-    "st_alpha_max": 0.10,
-    "st_warmup_epochs": 100,
-    "st_residual_calib": True,
-    "st_residual_warmup_epochs": 100,
-    "st_residual_target_scale": 0.38,
-    "st_feature_fusion": True,
-    "st_feature_channels": 64,
-    "st_feature_scale_max": 0.025,
-    "st_feature_init_scale": 0.004,
-    "st_feature_zero_init": True,
-    "st_feature_sigma_gate": True,
-    "st_feature_sigma_mid": -1.0,
-    "st_feature_sigma_scale": 0.75,
-    "st_feature_warmup_epochs": 250,
-    "st_feature_norm_max": 0.015,
-    "st_feature_input_clip": 3.0,
-    "lambda_st_residual": 0.05,
-    "lambda_st_delta_reg": 0.001,
-    "lambda_st_raw_delta_reg": 0.00015,
-    "lambda_st_effective": 0.045,
-    "lambda_st_effective_ratio": 0.018,
-    "st_effective_align": False,
-    "st_effective_max_ratio": 0.30,
-    "st_lma_affine": True,
-    "st_period_branch": True,
-    "st_period_candidates": [2, 3, 4, 6, 8, 12],
-    "st_period_min": 2,
-    "st_period_max": 12,
-    "st_period_temperature": 0.40,
-    "st_period_max_scale": 0.08,
-    "st_period_input_condition": False,
-    "st_period_input_channels": 64,
-    "st_period_input_alpha": 0.020,
-    "st_period_input_alpha_max": 0.040,
-    "st_period_input_alpha_learnable": True,
-    "st_period_input_warmup_epochs": 120,
-    "st_period_input_max_scale": 0.14,
-    "st_period_input_init_scale": 0.02,
-    "st_detach_base_for_style": False,
-    "st_branch_style_calib": False,
-    "st_var_relation": True,
-    "st_var_relation_rank": 8,
-    "st_var_relation_init_beta": 0.0,
-    "lambda_ts": 0.08,
-    "ds_warmup_epochs": 120,
-    "lambda_ds_trend": 0.04,
-    "lambda_ds_season": 0.04,
-    "lambda_ds_freq": 0.014,
-    "lambda_ds_corr": 0.004,
-    "lambda_ds_dist": 0.004,
-    "use_final_dist_train": True,
-    "lambda_final_mean": 0.004,
-    "lambda_final_std": 0.008,
-    "lambda_final_diff_std": 0.016,
-    "lambda_final_quantile": 0.012,
-    "lambda_final_highfreq": 0.005,
-    "use_period_train": False,
-    "period_lma_kernels": [1, 2, 4, 6, 12],
-    "period_max_lag": 12,
-    "period_warmup_epochs": 120,
-    "period_late_start_ratio": 0.72,
-    "period_late_min_scale": 0.50,
-    "lambda_period_autocorr": 0.008,
-    "lambda_period_amp": 0.005,
-    "lambda_period_phase": 0.0015,
-}
-
-# === [MAX3] max3: max2 short-sequence settings + TransFusion-style denoising adapter ===
-# Method: standalone preset; uses max2 short-sequence stabilization, replaces max2 long-sequence
-# token/film branches with TFDA film + token-context injection.
-# Isolation: full preset, no runtime inheritance from max1/max2.
-_TRAIN_BUDGET_PRESETS["max3"] = {
-    "ema_decay": 0.999,
-    "use_late_decay": True,
-    "late_decay_start_ratio": 0.55,
-    "late_decay_start_epoch": 0,
-    "late_decay_min_scale": 0.50,
-    "late_decay_power": 1.0,
-    "late_decay_st_strength": True,
-    "late_decay_style_loss": False,
-    "use_delta_smooth_reg": True,
-    "lambda_delta_smooth": 0.010,
-    "use_delta_spectral_reg": True,
-    "lambda_delta_spectral": 0.006,
-    "pred_structure_auto_lag": True,
+    # --- [MAX2] CTC: Causal Temporal Convolution for local temporal dependencies ---
+    "use_ctc": True,
+    "ctc_dilations": [1, 2, 4, 8],
+    "ctc_kernel_size": 3,
+    "ctc_max_scale": 0.015,
+    "ctc_init_scale": 0.003,
+    "ctc_length_mid": 128.0,
+    "ctc_length_tau": 24.0,
+    "ctc_zero_init": True,
+    "ctc_dropout": 0.0,
+    # --- [MAX2] MSTC-token disabled: replaced by CTC ---
     "use_mstc_token_adapter": False,
+    # --- [MAX2] Transition context disabled: replaced by CTC ---
     "use_transition_context_film": False,
-    "use_tfda_film": True,
-    "use_tfda_token_context": True,
-    "tfda_latent_dim": 64,
-    "tfda_num_heads": 4,
-    "tfda_num_layers": 2,
-    "tfda_ff_size": 256,
-    "tfda_dropout": 0.0,
-    "tfda_patch_short": 1,
-    "tfda_patch_mid": 4,
-    "tfda_patch_long": 16,
-    "tfda_mid_threshold": 48,
-    "tfda_long_threshold": 200,
-    "tfda_length_mid": 96.0,
-    "tfda_length_tau": 32.0,
-    "tfda_max_scale": 0.008,
-    "tfda_init_scale": 0.0015,
-    "tfda_token_max_scale": 0.006,
-    "tfda_token_init_scale": 0.001,
-    "tfda_input_clip": 3.0,
-    "tfda_zero_init": True,
+    # --- Variable relation constraints ---
     "lambda_st_relation_reg": 0.003,
     "st_var_relation_beta": 0.12,
+    # --- Residual reliability: short-sequence guard, length-gated off for long sequences ---
     "use_residual_reliability": True,
     "residual_reliability_min": 0.20,
     "residual_reliability_power": 1.0,
@@ -806,6 +686,9 @@ _TRAIN_BUDGET_PRESETS["max3"] = {
     "residual_reliability_acf_max_lag": 12,
     "reliability_delta_reg_boost": 2.0,
     "reliability_effective_boost": 2.0,
+    "residual_reliability_short_gate": True,
+    "residual_reliability_length_mid": 128.0,
+    "residual_reliability_length_tau": 24.0,
     "use_pred_structure_loss": True,
     "pred_structure_max_lag": 6,
     "pred_structure_max_channels": 64,
@@ -820,6 +703,19 @@ _TRAIN_BUDGET_PRESETS["max3"] = {
     "pred_structure_confidence_power": 1.0,
     "pred_structure_huber_beta": 0.03,
     "lambda_pred_structure": 0.003,
+    # --- [MAX2] DS loss: multi-lag autocorr + AR(3) + spectral coherence ---
+    "lambda_ds_ar_residual": 0.006,
+    "ds_ar_order": 3,
+    "lambda_ds_multi_lag": 0.003,
+    "ds_multi_lag_lags": [1, 5, 10, 20, 50],
+    "lambda_ds_coherence": 0.002,
+    "ds_coherence_max_channels": 64,
+    "use_ds_long_loss_gate": True,
+    "ds_long_loss_length_mid": 128.0,
+    "ds_long_loss_length_tau": 24.0,
+    "ds_long_loss_gate_floor": 0.0,
+    "ds_coherence_min_channels": 8,
+    # --- ST adapter core ---
     "st_alpha": 0.06,
     "st_alpha_max": 0.10,
     "st_warmup_epochs": 100,
@@ -864,19 +760,22 @@ _TRAIN_BUDGET_PRESETS["max3"] = {
     "st_var_relation": True,
     "st_var_relation_rank": 8,
     "st_var_relation_init_beta": 0.0,
+    # --- DS style loss ---
     "lambda_ts": 0.08,
     "ds_warmup_epochs": 120,
     "lambda_ds_trend": 0.04,
     "lambda_ds_season": 0.04,
-    "lambda_ds_freq": 0.014,
+    "lambda_ds_freq": 0.012,
     "lambda_ds_corr": 0.004,
     "lambda_ds_dist": 0.004,
+    # --- Final distribution ---
     "use_final_dist_train": True,
     "lambda_final_mean": 0.004,
     "lambda_final_std": 0.008,
     "lambda_final_diff_std": 0.016,
-    "lambda_final_quantile": 0.012,
+    "lambda_final_quantile": 0.010,
     "lambda_final_highfreq": 0.005,
+    # --- Period train ---
     "use_period_train": False,
     "period_lma_kernels": [1, 2, 4, 6, 12],
     "period_max_lag": 12,
@@ -969,6 +868,9 @@ def _apply_st_ds_defaults(parsed_args):
         "residual_reliability_acf_max_lag": 12,
         "reliability_delta_reg_boost": 1.0,
         "reliability_effective_boost": 1.0,
+        "residual_reliability_short_gate": False,
+        "residual_reliability_length_mid": 96.0,
+        "residual_reliability_length_tau": 16.0,
         "use_pred_structure_loss": False,
         "pred_structure_max_lag": 6,
         "pred_structure_max_channels": 64,
@@ -988,6 +890,23 @@ def _apply_st_ds_defaults(parsed_args):
         "lambda_delta_smooth": 0.005,
         "use_delta_spectral_reg": False,
         "lambda_delta_spectral": 0.003,
+        "st_len_adaptive_reg": False,
+        "st_short_lambda_delta_smooth": 0.005,
+        "st_short_lambda_delta_spectral": 0.004,
+        "use_delta_explore": False,
+        "delta_explore_std": 0.012,
+        "delta_explore_start_epoch": 100,
+        "delta_explore_end_ratio": 0.65,
+        "delta_explore_decay_power": 1.0,
+        "use_ctc": False,
+        "ctc_dilations": [1, 2, 4, 8],
+        "ctc_kernel_size": 3,
+        "ctc_max_scale": 0.015,
+        "ctc_init_scale": 0.003,
+        "ctc_length_mid": 96.0,
+        "ctc_length_tau": 32.0,
+        "ctc_zero_init": True,
+        "ctc_dropout": 0.0,
         "use_transition_teacher": False,
         "transition_teacher_horizons": [1, 2, 4],
         "transition_teacher_ridge": 0.01,
@@ -1066,26 +985,6 @@ def _apply_st_ds_defaults(parsed_args):
         "mstc_token_length_tau": 32.0,
         "mstc_token_dropout": 0.0,
         "mstc_token_zero_init": True,
-        "use_tfda_film": False,
-        "use_tfda_token_context": False,
-        "tfda_latent_dim": 64,
-        "tfda_num_heads": 4,
-        "tfda_num_layers": 2,
-        "tfda_ff_size": 256,
-        "tfda_dropout": 0.0,
-        "tfda_patch_short": 1,
-        "tfda_patch_mid": 4,
-        "tfda_patch_long": 16,
-        "tfda_mid_threshold": 48,
-        "tfda_long_threshold": 200,
-        "tfda_length_mid": 96.0,
-        "tfda_length_tau": 32.0,
-        "tfda_max_scale": 0.008,
-        "tfda_init_scale": 0.0015,
-        "tfda_token_max_scale": 0.006,
-        "tfda_token_init_scale": 0.001,
-        "tfda_input_clip": 3.0,
-        "tfda_zero_init": True,
         "lambda_st_residual": 0.020,
         "lambda_st_delta_reg": 0.002,
         "lambda_st_raw_delta_reg": 0.0005,
@@ -1109,6 +1008,16 @@ def _apply_st_ds_defaults(parsed_args):
         "lambda_ds_freq": 0.012,
         "lambda_ds_corr": 0.003,
         "lambda_ds_dist": 0.003,
+        "lambda_ds_ar_residual": 0.0,
+        "ds_ar_order": 1,
+        "lambda_ds_multi_lag": 0.0,
+        "ds_multi_lag_lags": [1, 5, 10, 20, 50],
+        "lambda_ds_coherence": 0.0,
+        "ds_coherence_max_channels": 64,
+        "use_ds_long_loss_gate": False,
+        "ds_long_loss_length_mid": 96.0,
+        "ds_long_loss_length_tau": 16.0,
+        "ds_long_loss_gate_floor": 0.0,
         "ds_inference_kernel": False,
         "use_final_dist_train": False,
         "final_dist_quantiles": [0.05, 0.25, 0.50, 0.75, 0.95],
@@ -1196,7 +1105,7 @@ def parse_args_uncond():
     parser.add_argument('--run_id', type=str, default=None,
                         help='training run id; leave empty to create a new id for training or use the latest id for evaluation')
     parser.add_argument('--train_budget', type=str,
-                                choices=['a2', 'f3', 'pro4', 'max1', 'max2', 'max3', 'auto'],
+                                choices=['a2', 'f3', 'pro4', 'max1', 'max2', 'auto'],
                         default=None,
                         help='generic ST-DS training budget preset')
     parser.add_argument('--log_dir', default='./logs', help='path to save logs')
@@ -1311,7 +1220,7 @@ def parse_args_cond():
     parser.add_argument('--run_id', type=str, default=None,
                         help='training run id; leave empty to create a new id for training or use the latest id for evaluation')
     parser.add_argument('--train_budget', type=str,
-                                choices=['a2', 'f3', 'pro4', 'max1', 'max2', 'max3', 'auto'],
+                                choices=['a2', 'f3', 'pro4', 'max1', 'max2', 'auto'],
                         default=None,
                         help='generic ST-DS training budget preset')
     parser.add_argument('--log_dir', default='./logs', help='path to save logs')

@@ -290,6 +290,42 @@ def log_config_and_tags(args, logger, name):
     logger.add_tags([args.dataset])
 
 
+def _json_safe_value(value):
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    if isinstance(value, (list, tuple)):
+        return [_json_safe_value(v) for v in value]
+    if isinstance(value, dict):
+        return {str(k): _json_safe_value(v) for k, v in value.items()}
+    if isinstance(value, torch.device):
+        return str(value)
+    return str(value)
+
+
+def save_run_args(args, overwrite=False):
+    payload = {k: _json_safe_value(v) for k, v in sorted(vars(args).items())}
+    payload.setdefault('command', ' '.join(sys.argv))
+
+    paths = []
+    log_dir = getattr(args, 'log_dir', None)
+    if log_dir:
+        log_run_dir = os.path.dirname(log_dir) if os.path.basename(log_dir) == 'checkpoint' else log_dir
+        paths.append(os.path.join(log_run_dir, 'args.json'))
+    view_dir = getattr(args, 'view_dir', None)
+    if view_dir:
+        paths.append(os.path.join(view_dir, 'args.json'))
+
+    for path in dict.fromkeys(paths):
+        if not overwrite and os.path.exists(path):
+            continue
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        tmp_path = path + '.tmp'
+        with open(tmp_path, 'w', encoding='utf-8') as f:
+            json.dump(payload, f, indent=2, ensure_ascii=False, sort_keys=True)
+            f.write('\n')
+        os.replace(tmp_path, path)
+
+
 def create_model_name_and_dir(args, new_run=False):
     dataset = getattr(args, 'dataset', 'energy')
     train_budget = getattr(args, 'train_budget', None)
@@ -315,6 +351,7 @@ def create_model_name_and_dir(args, new_run=False):
     os.makedirs(os.path.dirname(args.log_dir), exist_ok=True)
     args.view_root = getattr(args, 'view_root', getattr(args, 'view_dir', './view'))
     args.view_dir = get_run_view_dir(args, create=False)
+    save_run_args(args, overwrite=False)
     return name
 
 

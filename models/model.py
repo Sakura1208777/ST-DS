@@ -661,6 +661,7 @@ class ImagenTime(nn.Module):
                 + float(getattr(self.args, "lambda_st_branch_freq", 0.005)) * branch_losses["freq"]
                 + float(getattr(self.args, "lambda_st_branch_corr", 0.002)) * branch_losses["corr"]
                 + float(getattr(self.args, "lambda_st_branch_dist", 0.002)) * branch_losses["dist"]
+                + float(getattr(self.args, "lambda_st_branch_ar_residual", 0.0) or 0.0) * branch_losses["ar_residual"]
             )
             loss = loss + output.new_tensor(style_scale) * torch.nan_to_num(branch_style_loss)
             to_log['st/branch_style_loss'] = torch.nan_to_num(branch_style_loss).detach().item()
@@ -669,6 +670,7 @@ class ImagenTime(nn.Module):
             to_log['st/branch_freq_loss'] = torch.nan_to_num(branch_losses["freq"]).detach().item()
             to_log['st/branch_corr_loss'] = torch.nan_to_num(branch_losses["corr"]).detach().item()
             to_log['st/branch_dist_loss'] = torch.nan_to_num(branch_losses["dist"]).detach().item()
+            to_log['st/branch_ar_residual_loss'] = torch.nan_to_num(branch_losses["ar_residual"]).detach().item()
 
         if self.final_dist_loss_fn is not None and x_ts is not None:
             if out_ts is None:
@@ -773,8 +775,20 @@ class ImagenTime(nn.Module):
                 effective_boost_max = max(1.0, float(getattr(self.args, "reliability_effective_boost", 1.0)))
                 delta_reg_weight = 1.0 + (delta_reg_boost_max - 1.0) * (1.0 - reliability)
                 effective_reg_weight = 1.0 + (effective_boost_max - 1.0) * (1.0 - reliability)
+                reliability_gate = target_delta.new_tensor(1.0)
+                if bool(getattr(self.args, "residual_reliability_short_gate", False)):
+                    length_mid = float(getattr(self.args, "residual_reliability_length_mid", 96.0) or 96.0)
+                    length_tau = max(float(getattr(self.args, "residual_reliability_length_tau", 16.0) or 16.0), 1e-6)
+                    seq_len = int(target_delta.shape[1])
+                    reliability_gate = 1.0 - torch.sigmoid(
+                        target_delta.new_tensor((float(seq_len) - length_mid) / length_tau)
+                    )
+                    residual_loss_weight = 1.0 + reliability_gate * (residual_loss_weight - 1.0)
+                    delta_reg_weight = 1.0 + reliability_gate * (delta_reg_weight - 1.0)
+                    effective_reg_weight = 1.0 + reliability_gate * (effective_reg_weight - 1.0)
             else:
                 reliability = None
+                reliability_gate = None
                 residual_loss_weight = None
                 delta_reg_weight = None
                 effective_reg_weight = None
@@ -830,6 +844,11 @@ class ImagenTime(nn.Module):
                 else:
                     delta_smooth_loss = effective_delta_ts.new_tensor(0.0)
                 lambda_delta_smooth = float(getattr(self.args, "lambda_delta_smooth", 0.005))
+                # Length-adaptive: use short-sequence params when T<=48
+                if bool(getattr(self.args, "st_len_adaptive_reg", False)):
+                    seq_len_val = int(effective_delta_ts.shape[1])
+                    if seq_len_val <= 48:
+                        lambda_delta_smooth = float(getattr(self.args, "st_short_lambda_delta_smooth", lambda_delta_smooth))
                 loss = loss + output.new_tensor(st_calib_scale) * (lambda_delta_smooth * delta_smooth_loss)
                 to_log['st/delta_smooth_loss'] = torch.nan_to_num(delta_smooth_loss).detach().item()
             # --- [MAX1] Delta spectral alignment ---
@@ -841,6 +860,11 @@ class ImagenTime(nn.Module):
                 else:
                     spectral_loss = effective_delta_ts.new_tensor(0.0)
                 lambda_delta_spectral = float(getattr(self.args, "lambda_delta_spectral", 0.003))
+                # Length-adaptive: use short-sequence params when T<=48
+                if bool(getattr(self.args, "st_len_adaptive_reg", False)):
+                    seq_len_val = int(effective_delta_ts.shape[1])
+                    if seq_len_val <= 48:
+                        lambda_delta_spectral = float(getattr(self.args, "st_short_lambda_delta_spectral", lambda_delta_spectral))
                 loss = loss + output.new_tensor(st_calib_scale) * (lambda_delta_spectral * spectral_loss)
                 to_log['st/delta_spectral_loss'] = torch.nan_to_num(spectral_loss).detach().item()
             if bool(getattr(self.args, "use_pred_structure_loss", False)):
@@ -947,6 +971,8 @@ class ImagenTime(nn.Module):
             to_log['st/effective_delta_norm'] = torch.nan_to_num(effective_delta_ts).detach().square().mean().sqrt().item()
             if use_residual_reliability:
                 to_log['st/reliability'] = torch.nan_to_num(reliability).detach().mean().item()
+                if reliability_gate is not None:
+                    to_log['st/reliability_length_gate'] = torch.nan_to_num(reliability_gate).detach().item()
                 to_log['st/reliability_loss_weight'] = torch.nan_to_num(residual_loss_weight).detach().mean().item()
                 to_log['st/reliability_reg_weight'] = torch.nan_to_num(delta_reg_weight).detach().mean().item()
                 to_log['st/reliability_trend_ratio'] = torch.nan_to_num(
@@ -1001,8 +1027,8 @@ class ImagenTime(nn.Module):
                     to_log[f"st/{key}"] = torch.nan_to_num(value).detach().item()
                 else:
                     to_log[f"st/{key}"] = float(value)
-            tfda_token_details = st_state.get("tfda_token_details") or {}
-            for key, value in tfda_token_details.items():
+            ctc_details = st_state.get("ctc_details") or {}
+            for key, value in ctc_details.items():
                 if torch.is_tensor(value):
                     to_log[f"st/{key}"] = torch.nan_to_num(value).detach().item()
                 else:
