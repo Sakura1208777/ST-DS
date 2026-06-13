@@ -75,9 +75,12 @@ class DSStyleExtractor(nn.Module):
             X_cols.append(x_ts[:, max_order - lag:-lag, :])  # (B, T-order, C)
         X = torch.stack(X_cols, dim=-1)  # (B, T-order, C, order)
 
-        # Solve per-channel OLS: phi_c = (X_c^T X_c)^{-1} X_c^T y_c
-        XtX = X.transpose(-1, -2).matmul(X)  # (B, C, order, order)
-        Xty = X.transpose(-1, -2).matmul(y.unsqueeze(-1))  # (B, C, order, 1)
+        # Solve per-channel OLS over the temporal axis:
+        # X_bc: (B, C, T-order, order), y_bc: (B, C, T-order)
+        X_bc = X.permute(0, 2, 1, 3)
+        y_bc = y.permute(0, 2, 1)
+        XtX = X_bc.transpose(-1, -2).matmul(X_bc)  # (B, C, order, order)
+        Xty = X_bc.transpose(-1, -2).matmul(y_bc.unsqueeze(-1))  # (B, C, order, 1)
         try:
             phi = torch.linalg.solve(XtX + self.eps * torch.eye(max_order, device=XtX.device, dtype=XtX.dtype), Xty)
         except Exception:
@@ -85,17 +88,17 @@ class DSStyleExtractor(nn.Module):
         phi = phi.squeeze(-1)  # (B, C, order)
 
         # Residual: e[t] = y[t] - X[t] @ phi
-        residual = y - (X * phi.unsqueeze(1)).sum(dim=-1)  # (B, T-order, C)
+        residual = y_bc - (X_bc * phi.unsqueeze(2)).sum(dim=-1)  # (B, C, T-order)
 
         # Return residual statistics
-        res_mean = residual.mean(dim=1)  # (B, C)
-        res_std = residual.var(dim=1, unbiased=False).add(self.eps).sqrt()  # (B, C)
+        res_mean = residual.mean(dim=2)  # (B, C)
+        res_std = residual.var(dim=2, unbiased=False).add(self.eps).sqrt()  # (B, C)
 
         # Lag-1 autocorrelation of residual (should be ~0 for white noise)
-        if residual.shape[1] > 2:
-            res_centered = residual - residual.mean(dim=1, keepdim=True)
-            res_var = res_centered.pow(2).sum(dim=1).clamp_min(self.eps)
-            res_acf1 = (res_centered[:, 1:, :] * res_centered[:, :-1, :]).sum(dim=1) / res_var
+        if residual.shape[2] > 2:
+            res_centered = residual - residual.mean(dim=2, keepdim=True)
+            res_var = res_centered.pow(2).sum(dim=2).clamp_min(self.eps)
+            res_acf1 = (res_centered[:, :, 1:] * res_centered[:, :, :-1]).sum(dim=2) / res_var
         else:
             res_acf1 = torch.zeros_like(res_mean)
 

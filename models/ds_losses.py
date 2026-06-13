@@ -20,7 +20,7 @@ class DSStyleLoss(nn.Module):
         self.lambda_ds_coherence = float(getattr(args, "lambda_ds_coherence", 0.0) or 0.0)
         self.ds_multi_lag_lags = getattr(args, "ds_multi_lag_lags", None) or [1, 5, 10, 20, 50]
         self.ds_coherence_max_channels = int(getattr(args, "ds_coherence_max_channels", 64))
-        self.ds_coherence_min_channels = int(getattr(args, "ds_coherence_min_channels", 0))
+        self.ds_coherence_min_channels = int(getattr(args, "ds_coherence_min_channels", 0) or 0)
         self.use_long_loss_gate = bool(getattr(args, "use_ds_long_loss_gate", False))
         self.long_loss_length_mid = float(getattr(args, "ds_long_loss_length_mid", 96.0) or 96.0)
         self.long_loss_length_tau = max(float(getattr(args, "ds_long_loss_length_tau", 16.0) or 16.0), eps)

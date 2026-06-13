@@ -1014,6 +1014,7 @@ def _apply_st_ds_defaults(parsed_args):
         "ds_multi_lag_lags": [1, 5, 10, 20, 50],
         "lambda_ds_coherence": 0.0,
         "ds_coherence_max_channels": 64,
+        "ds_coherence_min_channels": 0,
         "use_ds_long_loss_gate": False,
         "ds_long_loss_length_mid": 96.0,
         "ds_long_loss_length_tau": 16.0,
